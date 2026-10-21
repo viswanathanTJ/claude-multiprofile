@@ -1,16 +1,24 @@
-## 0.2.0
-
-- `switch [NAME]`: choose the Claude Code profile for every terminal (asks if NAME is left out). The `claude` command reads the choice on every start.
-- `set-default [NAME]`: same as `switch`.
-- `current`: show the profile in use.
-- `shell-init [fish|bash|zsh] [--install]`: the `claude` wrapper. `--install` writes it into your shell config as a marked block.
-- Share chat history between profiles when adding one: links `projects/` and `history.jsonl` to a chosen profile (or `default`).
-- Menu entries for the new commands.
-
 # Changelog
 
 All notable changes to claude-multiprofile. Versions follow semver; the
 project is pre-1.0, so minor breakage may occur between 0.x releases.
+
+## 0.2.0
+
+### Added
+
+- **`switch [NAME] [--all|--session]`** chooses the Claude Code profile. Asks whether it applies to all terminals (saved) or this session only, unless a flag says which. Asks for the profile unless NAME is given.
+- **`set-default [NAME]`** is the same as `switch --all`.
+- **`current`** shows the profile in use (this session's choice, else the saved one).
+- **`shell-init [fish|bash|zsh] [--install]`** prints the `claude` wrapper; `--install` writes it into the shell config as a marked block (`# >>> claude-multiprofile wrapper >>>`). The wrapper also provides `claude-multiprofile switch --session` for the current shell.
+- **`install-shim` / `remove-shim`** put a `claude` shim at `~/.local/bin/claude`, so every start (scripts, cron, IDE terminals) uses the profile in use. `remove-shim` restores the original link.
+- **Chat history sharing** when adding a Claude Code profile: links `projects/` and `history.jsonl` to an existing profile or `default`. A copy the new profile already had is moved aside as `*.before-sharing-<time>`, never deleted.
+- Menu entries for `switch`, `current` and `shell-init`.
+
+### Changed
+
+- The update notice is no longer shown for `resolve-dir` and `shell-init`, which the wrappers call on every start.
+- Help text lists the new commands.
 
 ## 0.1.37 (2026-10-20)
 
