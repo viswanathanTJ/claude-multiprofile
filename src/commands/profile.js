@@ -184,8 +184,9 @@ const RC_START = "# >>> claude-multiprofile wrapper >>>";
 const RC_END = "# <<< claude-multiprofile wrapper <<<";
 
 // `claude-multiprofile shell-init [fish|bash|zsh] [--install]`.
-// Without --install it prints the wrapper. With --install it writes it into the shell's config file
-// (config.fish, .zshrc or .bash_profile) as a marked block; an older block is replaced.
+// Without --install it prints the wrapper. With --install it writes the wrapper to its own file in
+// the tool's config folder, and adds one marked line to the shell config that loads it. An older
+// block (from an earlier version) is replaced.
 export function shellInitCmd(args) {
   const install = args.includes("--install");
   const shell = args.find((a) => a !== "--install") || detectShell();
@@ -195,8 +196,12 @@ export function shellInitCmd(args) {
     console.log(text);
     return;
   }
+  const file = path.join(configDir(), shell === "fish" ? "claude.fish" : "claude.sh");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
   const rc = rcPathForShell(shell);
-  const block = `${RC_START}\n${text}${RC_END}\n`;
+  const load = shell === "fish" ? `source "${file}"` : `. "${file}"`;
+  const block = `${RC_START}\n${load}\n${RC_END}\n`;
   let current = "";
   try {
     current = fs.readFileSync(rc, "utf8");
@@ -209,7 +214,7 @@ export function shellInitCmd(args) {
     ? current.slice(0, start) + block + current.slice(end + RC_END.length).replace(/^\n/, "")
     : current + (current && !current.endsWith("\n") ? "\n" : "") + block;
   fs.writeFileSync(rc, next);
-  ok(`Installed the claude wrapper in ${rc}`);
+  ok(`Wrote the claude wrapper to ${file} and loaded it from ${rc}`);
 }
 
 // ---- The claude shim -------------------------------------------------------
