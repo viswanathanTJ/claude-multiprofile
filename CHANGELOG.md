@@ -1,3 +1,12 @@
+## 0.2.0
+
+- `switch [NAME]`: choose the Claude Code profile for every terminal (asks if NAME is left out). The `claude` command reads the choice on every start.
+- `set-default [NAME]`: same as `switch`.
+- `current`: show the profile in use.
+- `shell-init [fish|bash|zsh] [--install]`: the `claude` wrapper. `--install` writes it into your shell config as a marked block.
+- Share chat history between profiles when adding one: links `projects/` and `history.jsonl` to a chosen profile (or `default`).
+- Menu entries for the new commands.
+
 # Changelog
 
 All notable changes to claude-multiprofile. Versions follow semver; the

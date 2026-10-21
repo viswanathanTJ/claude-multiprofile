@@ -137,12 +137,13 @@ claude() {
 `;
 }
 
-const RC_START = "# >>> claude-multiprofile >>>";
-const RC_END = "# <<< claude-multiprofile <<<";
+// Its own marked block, so it never collides with the alias block the tool writes (which it replaces whole).
+const RC_START = "# >>> claude-multiprofile wrapper >>>";
+const RC_END = "# <<< claude-multiprofile wrapper <<<";
 
 // `claude-multiprofile shell-init [fish|bash|zsh] [--install]`.
-// Without --install it prints the wrapper. With --install it writes it: fish gets its own
-// function file, bash and zsh get a block in their rc file (an old block is replaced).
+// Without --install it prints the wrapper. With --install it writes it into the shell's config file
+// (config.fish, .zshrc or .bash_profile) as a marked block; an older block is replaced.
 export function shellInitCmd(args) {
   const install = args.includes("--install");
   const shell = args.find((a) => a !== "--install") || detectShell();
@@ -150,13 +151,6 @@ export function shellInitCmd(args) {
   const text = wrapperText(shell, claudeBinary());
   if (!install) {
     console.log(text);
-    return;
-  }
-  if (shell === "fish") {
-    const file = path.join(HOME, ".config", "fish", "functions", "claude.fish");
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, text);
-    ok(`Installed the claude wrapper in ${file}`);
     return;
   }
   const rc = rcPathForShell(shell);
