@@ -183,10 +183,25 @@ claude() {
 const RC_START = "# >>> claude-multiprofile wrapper >>>";
 const RC_END = "# <<< claude-multiprofile wrapper <<<";
 
+// Removes the marked wrapper block from a shell config file, if there is one.
+function removeBlock(rc) {
+  let current;
+  try {
+    current = fs.readFileSync(rc, "utf8");
+  } catch {
+    return;
+  }
+  const start = current.indexOf(RC_START);
+  const end = current.indexOf(RC_END);
+  if (start === -1 || end <= start) return;
+  const next = current.slice(0, start) + current.slice(end + RC_END.length).replace(/^\n/, "");
+  fs.writeFileSync(rc, next);
+}
+
 // `claude-multiprofile shell-init [fish|bash|zsh] [--install]`.
-// Without --install it prints the wrapper. With --install it writes the wrapper to its own file in
-// the tool's config folder, and adds one marked line to the shell config that loads it. An older
-// block (from an earlier version) is replaced.
+// Without --install it prints the wrapper. With --install, fish gets the wrapper as
+// ~/.config/fish/functions/claude.fish (fish loads it on first use, like nvm.fish). bash and zsh get a
+// marked block in their rc file. An older block (from an earlier version) is removed.
 export function shellInitCmd(args) {
   const install = args.includes("--install");
   const shell = args.find((a) => a !== "--install") || detectShell();
@@ -196,12 +211,16 @@ export function shellInitCmd(args) {
     console.log(text);
     return;
   }
-  const file = path.join(configDir(), shell === "fish" ? "claude.fish" : "claude.sh");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, text);
+  if (shell === "fish") {
+    const file = path.join(HOME, ".config", "fish", "functions", "claude.fish");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    removeBlock(rcPathForShell(shell));
+    ok(`Installed the claude wrapper at ${file} (fish loads it on first use).`);
+    return;
+  }
   const rc = rcPathForShell(shell);
-  const load = shell === "fish" ? `source "${file}"` : `. "${file}"`;
-  const block = `${RC_START}\n${load}\n${RC_END}\n`;
+  const block = `${RC_START}\n${text}${RC_END}\n`;
   let current = "";
   try {
     current = fs.readFileSync(rc, "utf8");
@@ -214,7 +233,7 @@ export function shellInitCmd(args) {
     ? current.slice(0, start) + block + current.slice(end + RC_END.length).replace(/^\n/, "")
     : current + (current && !current.endsWith("\n") ? "\n" : "") + block;
   fs.writeFileSync(rc, next);
-  ok(`Wrote the claude wrapper to ${file} and loaded it from ${rc}`);
+  ok(`Installed the claude wrapper in ${rc}`);
 }
 
 // ---- The claude shim -------------------------------------------------------
