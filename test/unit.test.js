@@ -2324,3 +2324,24 @@ test("profile: fish wrapper calls resolve-dir and keeps the real claude path", a
   assert.match(text, /env -u CLAUDE_CONFIG_DIR/);
   assert.doesNotMatch(text, /CLAUDE_MP_PROFILE|CMP_EVAL_FILE/);
 });
+
+test("history: linkHistory shares projects and history.jsonl and keeps the old copy aside", async () => {
+  const { linkHistory } = await import("../src/history.js");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-history-"));
+  const from = path.join(base, "from");
+  const to = path.join(base, "to");
+  fs.mkdirSync(path.join(from, "projects"), { recursive: true });
+  fs.writeFileSync(path.join(from, "history.jsonl"), "{}\n");
+  fs.mkdirSync(path.join(to, "projects"), { recursive: true });
+  fs.writeFileSync(path.join(to, "projects", "old.txt"), "keep me");
+  const notes = linkHistory(from, to);
+  assert.ok(notes.length >= 2);
+  assert.equal(fs.readlinkSync(path.join(to, "projects")), path.join(from, "projects"));
+  assert.equal(fs.readlinkSync(path.join(to, "history.jsonl")), path.join(from, "history.jsonl"));
+  const kept = fs.readdirSync(to).filter((n) => n.startsWith("projects.before-sharing-"));
+  assert.equal(kept.length, 1);
+  assert.equal(fs.readFileSync(path.join(to, kept[0], "old.txt"), "utf8"), "keep me");
+  // Running it again changes nothing.
+  assert.match(linkHistory(from, to).join("\n"), /already shared/);
+  fs.rmSync(base, { recursive: true, force: true });
+});

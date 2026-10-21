@@ -45,6 +45,13 @@ start, so it applies right away in every terminal. `set-default` is the same as 
 Add the `claude` wrapper once with `claude-multiprofile shell-init fish` (or `bash` / `zsh`) and paste its output
 into your shell config.
 
+## Share chat history between profiles
+
+When you `add` a Claude Code profile, the wizard asks whether to share its chat history with an existing
+profile (or `default`, your normal `~/.claude`). Sharing links the `projects` folder and `history.jsonl`
+to that profile, so both see the same sessions. The source keeps its files. If the new profile already had
+a history folder, it is moved aside as `projects.before-sharing-<time>`, not deleted.
+
 ## Why this exists
 
 Claude Desktop and Claude Code both assume a single signed-in account. There's no built-in profile switcher today (open feature requests: [Desktop](https://github.com/anthropics/claude-code/issues/32783), [Desktop UI](https://github.com/anthropics/claude-code/issues/18435)). The standard workaround is a manual setup:
