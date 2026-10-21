@@ -35,9 +35,9 @@ export function savedDefault() {
   }
 }
 
-// The profile in use: the saved choice (global for every terminal).
+// The profile in use: this session's choice (CLAUDE_MP_PROFILE, set by switch --session), else the saved one.
 export function currentProfile() {
-  return savedDefault();
+  return process.env.CLAUDE_MP_PROFILE || savedDefault();
 }
 
 function findNamed(name) {
@@ -72,15 +72,57 @@ function saveDefault(name) {
   fs.writeFileSync(defaultFile(), `${name}\n`);
 }
 
-// `claude-multiprofile switch [NAME]`: the claude command uses NAME everywhere, from now on.
-export async function switchCmd(args) {
-  const name = args[0] || (await pickProfile("Switch Claude Code to which profile? (applies to every terminal)"));
-  requireProfile(name);
-  saveDefault(name);
-  ok(`Claude Code now uses ${name} in every terminal.`);
+// The shell line that sets this session's profile, for the shell in use.
+function sessionLine(name) {
+  const shell = process.env.CMP_SHELL || detectShell();
+  return shell === "fish" ? `set -gx CLAUDE_MP_PROFILE ${name}` : `export CLAUDE_MP_PROFILE=${name}`;
 }
 
-// `claude-multiprofile set-default [NAME]`: use NAME in every new terminal.
+// Applies NAME to this terminal only. The wrapper (shell-init --install) sources the line; without the
+// wrapper the line is printed, so eval "$(claude-multiprofile switch NAME --session)" works.
+function applySession(name) {
+  const line = sessionLine(name);
+  const file = process.env.CMP_EVAL_FILE;
+  if (file) {
+    fs.writeFileSync(file, `${line}\n`);
+    ok(`This session uses ${name}.`);
+    return;
+  }
+  console.log(line);
+  info(`This terminal is not set yet. Install the wrapper once (claude-multiprofile shell-init --install),`);
+  info(`or run: eval "$(claude-multiprofile switch ${name} --session)"`);
+}
+
+// `claude-multiprofile switch [NAME] [--all|--session]`.
+// Asks the scope (all terminals, or this session only) unless a flag says which, and asks the profile
+// unless NAME is given.
+export async function switchCmd(args) {
+  let scope = null;
+  const rest = [];
+  for (const a of args) {
+    if (a === "--all") scope = "all";
+    else if (a === "--session") scope = "session";
+    else rest.push(a);
+  }
+  if (!scope) {
+    scope = await select({
+      message: "Switch for:",
+      choices: [
+        { name: "All terminals (saved; the claude command uses it everywhere)", value: "all" },
+        { name: "This session only (this terminal)", value: "session" },
+      ],
+    });
+  }
+  const name = rest[0] || (await pickProfile(scope === "session" ? "Use which profile in THIS session?" : "Switch Claude Code to which profile? (every terminal)"));
+  requireProfile(name);
+  if (scope === "session") {
+    applySession(name);
+  } else {
+    saveDefault(name);
+    ok(`Claude Code now uses ${name} in every terminal.`);
+  }
+}
+
 // Same as switch; kept as a name for the same thing.
 export async function setDefaultCmd(args) {
   return switchCmd(args);
@@ -117,7 +159,20 @@ function claudeBinary() {
 // right away in every terminal.
 function wrapperText(shell, bin) {
   if (shell === "fish") {
-    return `# claude-multiprofile: the claude command follows the profile chosen with switch (fish).
+    return `# claude-multiprofile: switch applies here; the claude command follows the profile chosen with switch.
+set -gx CMP_SHELL fish
+function claude-multiprofile --wraps claude-multiprofile
+    if test "$argv[1]" = switch
+        set -lx CMP_EVAL_FILE (mktemp)
+        command claude-multiprofile $argv
+        if test -s "$CMP_EVAL_FILE"
+            source "$CMP_EVAL_FILE"
+        end
+        rm -f "$CMP_EVAL_FILE"
+    else
+        command claude-multiprofile $argv
+    end
+end
 function claude --wraps claude
     set -l dir (command claude-multiprofile resolve-dir)
     if test -n "$dir"
@@ -129,7 +184,18 @@ end
 `;
   }
   // bash and zsh share the same syntax.
-  return `# claude-multiprofile: the claude command follows the profile chosen with switch (${shell}).
+  return `# claude-multiprofile: switch applies here; the claude command follows the profile chosen with switch.
+export CMP_SHELL=${shell}
+claude-multiprofile() {
+  if [ "$1" = switch ]; then
+    local f; f="$(mktemp)"
+    CMP_EVAL_FILE="$f" command claude-multiprofile "$@"
+    [ -s "$f" ] && . "$f"
+    rm -f "$f"
+  else
+    command claude-multiprofile "$@"
+  fi
+}
 claude() {
   local d; d="$(command claude-multiprofile resolve-dir)"
   if [ -n "$d" ]; then CLAUDE_CONFIG_DIR="$d" "${bin}" "$@"; else env -u CLAUDE_CONFIG_DIR "${bin}" "$@"; fi

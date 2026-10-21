@@ -2322,7 +2322,8 @@ test("profile: fish wrapper calls resolve-dir and keeps the real claude path", a
   assert.match(text, /function claude --wraps claude/);
   assert.match(text, /resolve-dir/);
   assert.match(text, /env -u CLAUDE_CONFIG_DIR/);
-  assert.doesNotMatch(text, /CLAUDE_MP_PROFILE|CMP_EVAL_FILE/);
+  assert.match(text, /CMP_EVAL_FILE/);
+  assert.match(text, /claude-multiprofile --wraps/);
 });
 
 test("history: linkHistory shares projects and history.jsonl and keeps the old copy aside", async () => {
