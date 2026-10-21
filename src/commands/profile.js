@@ -9,6 +9,7 @@ import { select } from "@inquirer/prompts";
 import { getRegistry, configDir } from "../registry.js";
 import { HOME, ok, info, warn } from "../util.js";
 import { detectShell, rcPathForShell } from "../shell.js";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT = "default";
 
@@ -234,4 +235,66 @@ export function shellInitCmd(args) {
     : current + (current && !current.endsWith("\n") ? "\n" : "") + block;
   fs.writeFileSync(rc, next);
   ok(`Installed the claude wrapper in ${rc}`);
+}
+
+// ---- The claude shim -------------------------------------------------------
+//
+// `shell-init` only helps interactive shells that load your config. The shim is a small program
+// placed where `claude` is found, so scripts, cron jobs and IDE terminals use the profile too.
+// It runs the real Claude program with CLAUDE_CONFIG_DIR set to the profile in use.
+
+const SHIM_MARK = "# claude-multiprofile shim (managed)";
+
+function claudeLinkPath() {
+  return path.join(HOME, ".local", "bin", "claude");
+}
+
+function isShim(file) {
+  try {
+    return fs.readFileSync(file, "utf8").includes(SHIM_MARK);
+  } catch {
+    return false;
+  }
+}
+
+// `claude-multiprofile install-shim`: replaces ~/.local/bin/claude with the shim.
+export function installShimCmd() {
+  const link = claudeLinkPath();
+  if (isShim(link)) {
+    ok("The claude shim is already installed.");
+    return;
+  }
+  let real;
+  try {
+    real = fs.realpathSync(link);
+  } catch {
+    throw new Error(`No claude program found at ${link}. Install Claude Code first.`);
+  }
+  const cmp = fileURLToPath(new URL("../../bin/claude-multiprofile.js", import.meta.url));
+  const script = `#!/bin/sh
+${SHIM_MARK}
+# Runs the real claude with the config folder of the profile in use.
+# Remove it with: claude-multiprofile remove-shim
+REAL=${JSON.stringify(real)}
+dir="$("${process.execPath}" ${JSON.stringify(cmp)} resolve-dir 2>/dev/null)"
+if [ -n "$dir" ]; then CLAUDE_CONFIG_DIR="$dir"; export CLAUDE_CONFIG_DIR; else unset CLAUDE_CONFIG_DIR; fi
+exec "$REAL" "$@"
+`;
+  fs.unlinkSync(link);
+  fs.writeFileSync(link, script, { mode: 0o755 });
+  ok(`Installed the claude shim at ${link} (runs ${real}).`);
+}
+
+// `claude-multiprofile remove-shim`: puts the original link back.
+export function removeShimCmd() {
+  const link = claudeLinkPath();
+  if (!isShim(link)) {
+    ok("No claude shim is installed.");
+    return;
+  }
+  const real = fs.readFileSync(link, "utf8").match(/^REAL="(.+)"$/m)?.[1];
+  if (!real) throw new Error(`Could not read the original claude path from ${link}.`);
+  fs.unlinkSync(link);
+  fs.symlinkSync(real, link);
+  ok(`Removed the claude shim. ${link} points to ${real} again.`);
 }

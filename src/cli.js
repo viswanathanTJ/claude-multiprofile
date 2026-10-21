@@ -18,7 +18,7 @@ import { repair } from "./commands/repair.js";
 import { selfUpdate } from "./commands/selfupdate.js";
 import { status } from "./commands/status.js";
 import { upgrade } from "./commands/upgrade.js";
-import { switchCmd, setDefaultCmd, currentCmd, resolveDirCmd, shellInitCmd } from "./commands/profile.js";
+import { switchCmd, setDefaultCmd, currentCmd, resolveDirCmd, shellInitCmd, installShimCmd, removeShimCmd } from "./commands/profile.js";
 import { err, info, command } from "./util.js";
 import { getRegistry } from "./registry.js";
 import { fixPassDue, readState } from "./state.js";
@@ -62,6 +62,8 @@ COMMANDS
   switch [NAME]          Use NAME for claude in every terminal (asks if NAME is left out)
   current                Show the profile in use
   shell-init [SHELL]     Print the claude wrapper for fish, bash or zsh
+  install-shim          Make every claude start (scripts, cron, IDEs too) use the profile in use
+  remove-shim           Put the original claude back
   help                   Show this help
   version                Show the installed version
 
@@ -113,7 +115,7 @@ async function pickCommand() {
 // (see src/state.js). Say so once per command, until doctor --fix has run.
 // doctor and upgrade handle it themselves; help and version stay clean.
 function remindIfFixesPending(cmd) {
-  if (["doctor", "upgrade", "help", "version"].includes(cmd)) return;
+  if (["doctor", "upgrade", "help", "version", "resolve-dir", "shell-init"].includes(cmd)) return;
   try {
     if (!fixPassDue(VERSION, getRegistry().profiles.length, readState().fixesAppliedFor)) return;
   } catch {
@@ -170,6 +172,8 @@ export async function run(argv) {
     current: currentCmd,
     "resolve-dir": resolveDirCmd,
     "shell-init": shellInitCmd,
+    "install-shim": installShimCmd,
+    "remove-shim": removeShimCmd,
   };
   const handler = handlers[cmd];
   if (!handler) {
