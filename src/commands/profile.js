@@ -1,9 +1,6 @@
-// Choosing which profile Claude Code uses: in this terminal (`switch`) or in every new
-// terminal (`set-default`), plus the helpers the shell wrappers call (`resolve-dir`, `shell-init`).
-//
-// A program cannot change the environment of the shell that started it, so `switch` writes
-// the shell line to the file named in CMP_EVAL_FILE. The wrapper from `shell-init` sources it.
-// Without the wrapper, `switch` prints the line, so `eval "$(claude-multiprofile switch NAME)"` works.
+// Choosing which profile Claude Code uses. The choice is global: `switch` (or `set-default`)
+// saves it, and the `claude` command reads it on every start, in every terminal.
+// `resolve-dir` and `shell-init` are the helpers the `claude` wrapper uses.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -13,7 +10,6 @@ import { getRegistry, configDir } from "../registry.js";
 import { HOME, ok, info, warn } from "../util.js";
 import { detectShell } from "../shell.js";
 
-export const SESSION_VAR = "CLAUDE_MP_PROFILE";
 const DEFAULT = "default";
 
 // The profiles that can be chosen: the normal ~/.claude account, then every Claude Code
@@ -39,9 +35,9 @@ export function savedDefault() {
   }
 }
 
-// The profile in use here: this terminal's choice, else the saved default.
+// The profile in use: the saved choice (global for every terminal).
 export function currentProfile() {
-  return process.env[SESSION_VAR] || savedDefault();
+  return savedDefault();
 }
 
 function findNamed(name) {
@@ -70,35 +66,24 @@ async function pickProfile(question) {
   });
 }
 
-// The shell line that sets this terminal's profile, for the shell in use.
-function shellLine(name) {
-  const shell = process.env.CMP_SHELL || detectShell();
-  return shell === "fish" ? `set -gx ${SESSION_VAR} ${name}` : `export ${SESSION_VAR}=${name}`;
+// Saves NAME as the profile for every terminal.
+function saveDefault(name) {
+  fs.mkdirSync(configDir(), { recursive: true });
+  fs.writeFileSync(defaultFile(), `${name}\n`);
 }
 
-// `claude-multiprofile switch [NAME]`: use NAME in this terminal only.
+// `claude-multiprofile switch [NAME]`: the claude command uses NAME everywhere, from now on.
 export async function switchCmd(args) {
-  const name = args[0] || (await pickProfile("Use which profile in THIS terminal?"));
+  const name = args[0] || (await pickProfile("Switch Claude Code to which profile? (applies to every terminal)"));
   requireProfile(name);
-  const line = shellLine(name);
-  const evalFile = process.env.CMP_EVAL_FILE;
-  if (evalFile) {
-    fs.writeFileSync(evalFile, `${line}\n`);
-    ok(`This terminal now uses ${name}.`);
-  } else {
-    // No wrapper: print the line for eval, and say how to make it permanent.
-    console.log(line);
-    info(`Run: eval "$(claude-multiprofile switch ${name})"   (or add the wrapper: claude-multiprofile shell-init)`);
-  }
+  saveDefault(name);
+  ok(`Claude Code now uses ${name} in every terminal.`);
 }
 
 // `claude-multiprofile set-default [NAME]`: use NAME in every new terminal.
+// Same as switch; kept as a name for the same thing.
 export async function setDefaultCmd(args) {
-  const name = args[0] || (await pickProfile("Use which profile in EVERY new terminal?"));
-  requireProfile(name);
-  fs.mkdirSync(configDir(), { recursive: true });
-  fs.writeFileSync(defaultFile(), `${name}\n`);
-  ok(`Default profile is now ${name}. New terminals use it.`);
+  return switchCmd(args);
 }
 
 // `claude-multiprofile current`: the profile in use here.
@@ -128,25 +113,13 @@ function claudeBinary() {
   }
 }
 
-// `claude-multiprofile shell-init [fish|bash|zsh]`: prints the wrapper to add to your shell config.
+// `claude-multiprofile shell-init [fish|bash|zsh]`: prints the `claude` wrapper for your shell config.
+// The wrapper asks `resolve-dir` on every start, so a switch applies right away in every terminal.
 export function shellInitCmd(args) {
   const shell = args[0] || detectShell();
   const bin = claudeBinary();
   if (shell === "fish") {
-    console.log(`# claude-multiprofile wrapper (fish). Put in ~/.config/fish/functions/claude-multiprofile.fish etc.
-set -gx CMP_SHELL fish
-function claude-multiprofile
-    if test "$argv[1]" = switch
-        set -lx CMP_EVAL_FILE (mktemp)
-        command claude-multiprofile $argv
-        if test -s "$CMP_EVAL_FILE"
-            source "$CMP_EVAL_FILE"
-        end
-        rm -f "$CMP_EVAL_FILE"
-    else
-        command claude-multiprofile $argv
-    end
-end
+    console.log(`# claude-multiprofile: the claude command follows the profile chosen with switch (fish).
 function claude --wraps claude
     set -l dir (command claude-multiprofile resolve-dir)
     if test -n "$dir"
@@ -158,18 +131,7 @@ end`);
     return;
   }
   // bash and zsh share the same syntax.
-  console.log(`# claude-multiprofile wrapper (${shell}). Add to ~/.${shell}rc (or ~/.bash_profile on macOS).
-export CMP_SHELL=${shell === "zsh" ? "zsh" : "bash"}
-claude-multiprofile() {
-  if [ "$1" = switch ]; then
-    local f; f="$(mktemp)"
-    CMP_EVAL_FILE="$f" command claude-multiprofile "$@"
-    [ -s "$f" ] && . "$f"
-    rm -f "$f"
-  else
-    command claude-multiprofile "$@"
-  fi
-}
+  console.log(`# claude-multiprofile: the claude command follows the profile chosen with switch (${shell}).
 claude() {
   local d; d="$(command claude-multiprofile resolve-dir)"
   if [ -n "$d" ]; then CLAUDE_CONFIG_DIR="$d" "${bin}" "$@"; else env -u CLAUDE_CONFIG_DIR "${bin}" "$@"; fi

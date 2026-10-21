@@ -33,16 +33,17 @@ Terminal:  claude        claude-work        claude-client
 Run `claude-multiprofile` with no arguments for the menu, or use the commands directly:
 
 ```sh
-claude-multiprofile switch [NAME]      # use NAME in this terminal only (asks if NAME is left out)
-claude-multiprofile set-default [NAME] # use NAME in every new terminal (asks if NAME is left out)
-claude-multiprofile current            # show the profile in use
-claude-multiprofile shell-init fish    # print the wrapper for fish (also: bash, zsh)
+claude-multiprofile switch [NAME]    # Claude Code uses NAME in every terminal (asks if NAME is left out)
+claude-multiprofile current          # show the profile in use
+claude-multiprofile shell-init fish  # print the claude wrapper for fish (also: bash, zsh)
 ```
 
 `default` is your normal `~/.claude` account; any other NAME is a profile added with `add`.
-A program cannot change its parent shell, so `switch` needs the wrapper from `shell-init`
-(add its output to your shell config once). Without it, `eval "$(claude-multiprofile switch NAME)"` works.
-Your choice is saved under `~/.config/claude-multiprofile/default`.
+`switch` saves the choice in `~/.config/claude-multiprofile/default`, and the `claude` command reads it on every
+start, so it applies right away in every terminal. `set-default` is the same as `switch`.
+
+Add the `claude` wrapper once with `claude-multiprofile shell-init fish` (or `bash` / `zsh`) and paste its output
+into your shell config.
 
 ## Why this exists
 

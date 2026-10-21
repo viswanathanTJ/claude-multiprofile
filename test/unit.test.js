@@ -2301,15 +2301,10 @@ test("withoutClaudePrefix: a name that would double the Claude the tool adds (#2
   assert.equal(withoutClaudePrefix("work"), null);
 });
 
-test("profile: savedDefault and currentProfile fall back to default", async () => {
+test("profile: currentProfile is the saved default", async () => {
   const { currentProfile, savedDefault } = await import("../src/commands/profile.js");
-  const before = process.env.CLAUDE_MP_PROFILE;
-  delete process.env.CLAUDE_MP_PROFILE;
+  assert.equal(currentProfile(), savedDefault());
   assert.equal(typeof savedDefault(), "string");
-  assert.ok(currentProfile().length > 0);
-  process.env.CLAUDE_MP_PROFILE = "work";
-  assert.equal(currentProfile(), "work");
-  if (before === undefined) delete process.env.CLAUDE_MP_PROFILE; else process.env.CLAUDE_MP_PROFILE = before;
 });
 
 test("profile: listProfiles always starts with default", async () => {
@@ -2327,4 +2322,5 @@ test("profile: fish wrapper calls resolve-dir and keeps the real claude path", a
   assert.match(text, /function claude --wraps claude/);
   assert.match(text, /resolve-dir/);
   assert.match(text, /env -u CLAUDE_CONFIG_DIR/);
+  assert.doesNotMatch(text, /CLAUDE_MP_PROFILE|CMP_EVAL_FILE/);
 });
