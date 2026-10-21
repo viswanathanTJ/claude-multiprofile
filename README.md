@@ -28,6 +28,22 @@ Terminal:  claude        claude-work        claude-client
 
 > **Disclaimer.** This is an unofficial community tool. It uses public Electron flags (`--user-data-dir`) and a stable but undocumented Claude Code environment variable (`CLAUDE_CONFIG_DIR`) to keep profiles isolated. Anthropic engineers have engaged on the open feature requests for native multi-account in both apps, so the approach is well known, but it is not officially supported. If a future Claude release changes how profiles work, this tool will need to catch up.
 
+## Choose the profile to use
+
+Run `claude-multiprofile` with no arguments for the menu, or use the commands directly:
+
+```sh
+claude-multiprofile switch [NAME]      # use NAME in this terminal only (asks if NAME is left out)
+claude-multiprofile set-default [NAME] # use NAME in every new terminal (asks if NAME is left out)
+claude-multiprofile current            # show the profile in use
+claude-multiprofile shell-init fish    # print the wrapper for fish (also: bash, zsh)
+```
+
+`default` is your normal `~/.claude` account; any other NAME is a profile added with `add`.
+A program cannot change its parent shell, so `switch` needs the wrapper from `shell-init`
+(add its output to your shell config once). Without it, `eval "$(claude-multiprofile switch NAME)"` works.
+Your choice is saved under `~/.config/claude-multiprofile/default`.
+
 ## Why this exists
 
 Claude Desktop and Claude Code both assume a single signed-in account. There's no built-in profile switcher today (open feature requests: [Desktop](https://github.com/anthropics/claude-code/issues/32783), [Desktop UI](https://github.com/anthropics/claude-code/issues/18435)). The standard workaround is a manual setup:

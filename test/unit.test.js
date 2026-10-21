@@ -2300,3 +2300,31 @@ test("withoutClaudePrefix: a name that would double the Claude the tool adds (#2
   assert.equal(withoutClaudePrefix("claudette"), null, "only the word itself");
   assert.equal(withoutClaudePrefix("work"), null);
 });
+
+test("profile: savedDefault and currentProfile fall back to default", async () => {
+  const { currentProfile, savedDefault } = await import("../src/commands/profile.js");
+  const before = process.env.CLAUDE_MP_PROFILE;
+  delete process.env.CLAUDE_MP_PROFILE;
+  assert.equal(typeof savedDefault(), "string");
+  assert.ok(currentProfile().length > 0);
+  process.env.CLAUDE_MP_PROFILE = "work";
+  assert.equal(currentProfile(), "work");
+  if (before === undefined) delete process.env.CLAUDE_MP_PROFILE; else process.env.CLAUDE_MP_PROFILE = before;
+});
+
+test("profile: listProfiles always starts with default", async () => {
+  const { listProfiles } = await import("../src/commands/profile.js");
+  assert.equal(listProfiles()[0].name, "default");
+});
+
+test("profile: fish wrapper calls resolve-dir and keeps the real claude path", async () => {
+  const { shellInitCmd } = await import("../src/commands/profile.js");
+  const lines = [];
+  const orig = console.log;
+  console.log = (...a) => lines.push(a.join(" "));
+  try { shellInitCmd(["fish"]); } finally { console.log = orig; }
+  const text = lines.join("\n");
+  assert.match(text, /function claude --wraps claude/);
+  assert.match(text, /resolve-dir/);
+  assert.match(text, /env -u CLAUDE_CONFIG_DIR/);
+});

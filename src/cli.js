@@ -18,6 +18,7 @@ import { repair } from "./commands/repair.js";
 import { selfUpdate } from "./commands/selfupdate.js";
 import { status } from "./commands/status.js";
 import { upgrade } from "./commands/upgrade.js";
+import { switchCmd, setDefaultCmd, currentCmd, resolveDirCmd, shellInitCmd } from "./commands/profile.js";
 import { err, info, command } from "./util.js";
 import { getRegistry } from "./registry.js";
 import { fixPassDue, readState } from "./state.js";
@@ -58,6 +59,10 @@ COMMANDS
                          (off by default: its launcher keeps it current)
   upgrade [--no-fix]     Upgrade to the latest version on npm, then apply its
                          changes to your profiles (--no-fix: install only)
+  switch [NAME]          Use a profile in this terminal only (asks if NAME is left out)
+  set-default [NAME]     Use a profile in every new terminal (asks if NAME is left out)
+  current                Show the profile in use
+  shell-init [SHELL]     Print the wrapper for fish, bash or zsh (switch and claude use it)
   help                   Show this help
   version                Show the installed version
 
@@ -94,6 +99,10 @@ async function pickCommand() {
       { name: "repair       Re-register a profile launcher with macOS", value: "repair" },
       { name: "remove       Remove a profile", value: "remove" },
       { name: "self-update  Show or change how each profile updates", value: "self-update" },
+      { name: "switch       Use a profile in this terminal only", value: "switch" },
+      { name: "set-default  Use a profile in every new terminal", value: "set-default" },
+      { name: "current      Show the profile in use", value: "current" },
+      { name: "shell-init   Print the shell wrapper (fish, bash, zsh)", value: "shell-init" },
       { name: "upgrade      Upgrade claude-multiprofile to the latest version", value: "upgrade" },
       { name: "help         Show full help text", value: "help" },
       { name: "exit", value: "exit" },
@@ -155,7 +164,15 @@ export async function run(argv) {
 
   if (argv[0]) remindIfFixesPending(cmd);
 
-  const handlers = { add, list, status, doctor, extensions, rename, repair, remove, upgrade, "self-update": selfUpdate };
+  const handlers = {
+    add, list, status, doctor, extensions, rename, repair, remove, upgrade,
+    "self-update": selfUpdate,
+    switch: switchCmd,
+    "set-default": setDefaultCmd,
+    current: currentCmd,
+    "resolve-dir": resolveDirCmd,
+    "shell-init": shellInitCmd,
+  };
   const handler = handlers[cmd];
   if (!handler) {
     err(`Unknown command: ${cmd}`);
