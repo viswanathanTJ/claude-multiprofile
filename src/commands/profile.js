@@ -160,20 +160,7 @@ function claudeBinary() {
 // right away in every terminal.
 function wrapperText(shell, bin) {
   if (shell === "fish") {
-    return `# claude-multiprofile: switch applies here; the claude command follows the profile chosen with switch.
-set -gx CMP_SHELL fish
-function claude-multiprofile --wraps claude-multiprofile
-    if test "$argv[1]" = switch
-        set -lx CMP_EVAL_FILE (mktemp)
-        command claude-multiprofile $argv
-        if test -s "$CMP_EVAL_FILE"
-            source "$CMP_EVAL_FILE"
-        end
-        rm -f "$CMP_EVAL_FILE"
-    else
-        command claude-multiprofile $argv
-    end
-end
+    return `# claude-multiprofile: the claude command follows the profile chosen with switch.
 function claude --wraps claude
     set -l dir (command claude-multiprofile resolve-dir)
     if test -n "$dir"
@@ -185,18 +172,7 @@ end
 `;
   }
   // bash and zsh share the same syntax.
-  return `# claude-multiprofile: switch applies here; the claude command follows the profile chosen with switch.
-export CMP_SHELL=${shell}
-claude-multiprofile() {
-  if [ "$1" = switch ]; then
-    local f; f="$(mktemp)"
-    CMP_EVAL_FILE="$f" command claude-multiprofile "$@"
-    [ -s "$f" ] && . "$f"
-    rm -f "$f"
-  else
-    command claude-multiprofile "$@"
-  fi
-}
+  return `# claude-multiprofile: the claude command follows the profile chosen with switch (${shell}).
 claude() {
   local d; d="$(command claude-multiprofile resolve-dir)"
   if [ -n "$d" ]; then CLAUDE_CONFIG_DIR="$d" "${bin}" "$@"; else env -u CLAUDE_CONFIG_DIR "${bin}" "$@"; fi
@@ -204,7 +180,6 @@ claude() {
 `;
 }
 
-// Its own marked block, so it never collides with the alias block the tool writes (which it replaces whole).
 const RC_START = "# >>> claude-multiprofile wrapper >>>";
 const RC_END = "# <<< claude-multiprofile wrapper <<<";
 
