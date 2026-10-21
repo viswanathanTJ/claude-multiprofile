@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { select } from "@inquirer/prompts";
 import { getRegistry, configDir } from "../registry.js";
 import { HOME, ok, info, warn } from "../util.js";
-import { detectShell } from "../shell.js";
+import { detectShell, rcPathForShell } from "../shell.js";
 
 const DEFAULT = "default";
 
@@ -113,13 +113,11 @@ function claudeBinary() {
   }
 }
 
-// `claude-multiprofile shell-init [fish|bash|zsh]`: prints the `claude` wrapper for your shell config.
-// The wrapper asks `resolve-dir` on every start, so a switch applies right away in every terminal.
-export function shellInitCmd(args) {
-  const shell = args[0] || detectShell();
-  const bin = claudeBinary();
+// The `claude` wrapper text for one shell. It asks `resolve-dir` on every start, so a switch applies
+// right away in every terminal.
+function wrapperText(shell, bin) {
   if (shell === "fish") {
-    console.log(`# claude-multiprofile: the claude command follows the profile chosen with switch (fish).
+    return `# claude-multiprofile: the claude command follows the profile chosen with switch (fish).
 function claude --wraps claude
     set -l dir (command claude-multiprofile resolve-dir)
     if test -n "$dir"
@@ -127,13 +125,53 @@ function claude --wraps claude
     else
         env -u CLAUDE_CONFIG_DIR "${bin}" $argv
     end
-end`);
-    return;
+end
+`;
   }
   // bash and zsh share the same syntax.
-  console.log(`# claude-multiprofile: the claude command follows the profile chosen with switch (${shell}).
+  return `# claude-multiprofile: the claude command follows the profile chosen with switch (${shell}).
 claude() {
   local d; d="$(command claude-multiprofile resolve-dir)"
   if [ -n "$d" ]; then CLAUDE_CONFIG_DIR="$d" "${bin}" "$@"; else env -u CLAUDE_CONFIG_DIR "${bin}" "$@"; fi
-}`);
+}
+`;
+}
+
+const RC_START = "# >>> claude-multiprofile >>>";
+const RC_END = "# <<< claude-multiprofile <<<";
+
+// `claude-multiprofile shell-init [fish|bash|zsh] [--install]`.
+// Without --install it prints the wrapper. With --install it writes it: fish gets its own
+// function file, bash and zsh get a block in their rc file (an old block is replaced).
+export function shellInitCmd(args) {
+  const install = args.includes("--install");
+  const shell = args.find((a) => a !== "--install") || detectShell();
+  if (!["fish", "bash", "zsh"].includes(shell)) throw new Error(`Unknown shell "${shell}". Use fish, bash or zsh.`);
+  const text = wrapperText(shell, claudeBinary());
+  if (!install) {
+    console.log(text);
+    return;
+  }
+  if (shell === "fish") {
+    const file = path.join(HOME, ".config", "fish", "functions", "claude.fish");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    ok(`Installed the claude wrapper in ${file}`);
+    return;
+  }
+  const rc = rcPathForShell(shell);
+  const block = `${RC_START}\n${text}${RC_END}\n`;
+  let current = "";
+  try {
+    current = fs.readFileSync(rc, "utf8");
+  } catch {
+    current = "";
+  }
+  const start = current.indexOf(RC_START);
+  const end = current.indexOf(RC_END);
+  const next = start !== -1 && end > start
+    ? current.slice(0, start) + block + current.slice(end + RC_END.length).replace(/^\n/, "")
+    : current + (current && !current.endsWith("\n") ? "\n" : "") + block;
+  fs.writeFileSync(rc, next);
+  ok(`Installed the claude wrapper in ${rc}`);
 }
