@@ -134,9 +134,14 @@ export function currentCmd() {
   console.log(currentProfile());
 }
 
-// `claude-multiprofile resolve-dir`: the config folder for the profile in use ("" for default).
-// The shell wrapper calls this on every `claude` start.
-export function resolveDirCmd() {
+// `claude-multiprofile resolve-dir [NAME]`: the config folder for NAME, or for the profile in use
+// ("" for default). The wrapper and the shim call this on every `claude` start. An unknown NAME is an error.
+export function resolveDirCmd(args) {
+  if (args[0]) {
+    const found = requireProfile(args[0]);
+    console.log(found.name === DEFAULT ? "" : found.configDir);
+    return;
+  }
   const name = currentProfile();
   const found = findNamed(name);
   if (!found) {
@@ -160,22 +165,48 @@ function claudeBinary() {
 // right away in every terminal.
 function wrapperText(shell, bin) {
   if (shell === "fish") {
-    return `# claude-multiprofile: the claude command follows the profile chosen with switch.
+    return `# claude-multiprofile: the claude command. Uses the profile in use, or --profile NAME for this run.
 function claude --wraps claude
-    set -l dir (command claude-multiprofile resolve-dir)
+    set -l profile
+    set -l rest
+    set -l i 1
+    while test $i -le (count $argv)
+        set -l a $argv[$i]
+        if test "$a" = --profile
+            set i (math $i + 1)
+            set profile $argv[$i]
+        else if string match -q -- '--profile=*' "$a"
+            set profile (string replace -- '--profile=' '' "$a")
+        else
+            set -a rest "$a"
+        end
+        set i (math $i + 1)
+    end
+    set -l dir (command claude-multiprofile resolve-dir $profile)
+    or return 1
     if test -n "$dir"
-        env CLAUDE_CONFIG_DIR="$dir" "${bin}" $argv
+        env CLAUDE_CONFIG_DIR="$dir" "${bin}" $rest
     else
-        env -u CLAUDE_CONFIG_DIR "${bin}" $argv
+        env -u CLAUDE_CONFIG_DIR "${bin}" $rest
     end
 end
 `;
   }
   // bash and zsh share the same syntax.
-  return `# claude-multiprofile: the claude command follows the profile chosen with switch (${shell}).
+  return `# claude-multiprofile: the claude command. Uses the profile in use, or --profile NAME for this run.
 claude() {
-  local d; d="$(command claude-multiprofile resolve-dir)"
-  if [ -n "$d" ]; then CLAUDE_CONFIG_DIR="$d" "${bin}" "$@"; else env -u CLAUDE_CONFIG_DIR "${bin}" "$@"; fi
+  local profile="" args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile) profile="$2"; shift 2 ;;
+      --profile=*) profile="\${1#--profile=}"; shift ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  local d
+  if [ -n "$profile" ]; then d="$(command claude-multiprofile resolve-dir "$profile")" || return 1
+  else d="$(command claude-multiprofile resolve-dir)" || return 1; fi
+  if [ -n "$d" ]; then CLAUDE_CONFIG_DIR="$d" "${bin}" "\${args[@]}"; else env -u CLAUDE_CONFIG_DIR "${bin}" "\${args[@]}"; fi
 }
 `;
 }
