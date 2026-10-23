@@ -94,6 +94,7 @@ claude-multiprofile link default work --items mcp,prefs   # only these; add --ye
 | `setup` | linked | `skills/`, `commands/`, `agents/`, `hooks/`, `output-styles/`, `CLAUDE.md`, `keybindings.json` |
 | `mcp` | copied | MCP servers: user scope, and the per-folder ones `claude mcp add` makes by default |
 | `prefs` | copied | onboarding done and theme (no first-run screen), each folder's trust and allowed tools |
+| `login` | copied | The Claude sign-in and its account, so the target is on the source's account at once. It replaces the target's own (kept as `.credentials.json.before-sharing-<time>`). Being a copy, `/login` in the target later switches only the target. Both profiles hold one refresh token, so when one refreshes the other may need `/login` again. Linux only |
 | `mcpAuth` | copied | MCP servers' sign-ins. Both profiles then hold one refresh token, and when one refreshes the other may have to authenticate again with `/mcp`. Linux only; on macOS they are in the Keychain |
 
 Linked items are one copy: a skill added in either profile shows in both. The link points at where the
@@ -105,8 +106,7 @@ linked. They are only added: a server or setting the target already has is kept.
 `.claude.json.before-sharing`. Run `link` again later to pick up new ones. Close Claude in the target
 first, since it rewrites that file while it runs.
 
-Never shared: the Claude sign-in and account, which are what make a profile a different account, and
-`settings.json`, which often holds per-profile settings (`add` can copy it instead). Removing or renaming
+Never shared: `settings.json`, which often holds per-profile settings (`add` can copy it instead). Removing or renaming
 a source profile breaks the target's links.
 
 ## Why this exists

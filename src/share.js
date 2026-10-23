@@ -10,15 +10,19 @@
 //   mcp      MCP servers, user scope (`mcpServers`) and each folder's local scope
 //            (`projects[folder].mcpServers`, where `claude mcp add` puts them by default)
 //   prefs    onboarding done, theme, and each folder's trust and allowed tools
-//   mcpAuth  the MCP servers' OAuth sign-ins (`mcpOAuth` in .credentials.json). Asked apart:
-//            both profiles then hold the same refresh token, and when one refreshes, the
-//            other can be signed out of that server and has to authenticate again.
+//   login    the Claude sign-in (`claudeAiOauth` in .credentials.json) and the account it shows
+//            (`oauthAccount` in .claude.json). This one replaces what the target had (the old
+//            .credentials.json is kept aside): it is a copy, so /login in the target later
+//            changes the target alone.
+//   mcpAuth  the MCP servers' OAuth sign-ins (`mcpOAuth` in .credentials.json).
+// For login and mcpAuth, both profiles then hold the same refresh token. When one refreshes, the
+// other can be signed out (of Claude, or of that server) and has to sign in again.
 //
-// Never shared: the Claude sign-in (`claudeAiOauth`) and account (`oauthAccount`), which are what
-// make a profile a different account, and settings.json, which often holds per-profile env.
+// Never shared: settings.json, which often holds per-profile env.
 //
 // The default profile keeps .claude.json next to its folder (~/.claude.json), not inside it.
-// On macOS the sign-ins are in the Keychain, not in .credentials.json, so mcpAuth is Linux only.
+// On macOS the sign-ins are in the Keychain, not in .credentials.json, so login and mcpAuth are
+// Linux only.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -44,11 +48,19 @@ export const SHARE_ITEMS = [
   { value: "setup", name: "Skills, commands, agents, hooks, output styles, CLAUDE.md, keybindings: linked", checked: true },
   { value: "mcp", name: "MCP servers, user and per-folder: copied, the target's own are kept", checked: true },
   { value: "prefs", name: "Onboarding, theme, per-folder trust and allowed tools: copied", checked: true },
+  { value: "login", name: "Claude login: copied; /login in the target later changes the target only", checked: true },
   { value: "mcpAuth", name: "MCP sign-ins (tokens): copied; a shared token can sign the other profile out", checked: true },
 ];
 
-export function mcpAuthSupported() {
+// Items kept in .credentials.json, which on macOS is the Keychain instead.
+export const CREDENTIAL_ITEMS = ["login", "mcpAuth"];
+
+export function credentialsInFiles() {
   return !isMac();
+}
+
+function stamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
 // <config dir>/.claude.json, or ~/.claude.json for the default profile.
@@ -173,6 +185,24 @@ export function mergeMcpAuth(src, dst) {
   return { credentials: out, notes: added.length ? [`MCP sign-ins: copied ${added.join(", ")}`] : [] };
 }
 
+// Copies the Claude sign-in, replacing the target's. Leaves mcpOAuth and every other key alone.
+export function mergeLogin(src, dst) {
+  if (!src.claudeAiOauth) return { credentials: dst, notes: ["Claude login: the source is not signed in"], replaced: false };
+  if (same(src.claudeAiOauth, dst.claudeAiOauth)) return { credentials: dst, notes: ["Claude login: already the same"], replaced: false };
+  const replaced = Boolean(dst.claudeAiOauth);
+  return {
+    credentials: { ...dst, claudeAiOauth: src.claudeAiOauth },
+    notes: [replaced ? "Claude login: copied, replacing the target's own" : "Claude login: copied"],
+    replaced,
+  };
+}
+
+// The account the login belongs to, so /status shows it before the first request.
+export function mergeAccount(src, dst) {
+  if (!src.oauthAccount || same(src.oauthAccount, dst.oauthAccount)) return { config: dst, notes: [] };
+  return { config: { ...dst, oauthAccount: src.oauthAccount }, notes: [] };
+}
+
 // Shares `items` (values of SHARE_ITEMS) from the profile in `fromDir` to the one in `toDir`.
 // Returns one line per change, for the user.
 //
@@ -183,7 +213,7 @@ export function share(fromDir, toDir, items, { fresh = false, home = HOME } = {}
   if (want.has("history")) notes.push(...linkEntries(fromDir, toDir, SHARED_HISTORY, { create: true }));
   if (want.has("setup")) notes.push(...linkEntries(fromDir, toDir, SETUP_LINKS, { replace: fresh }));
 
-  if (want.has("mcp") || want.has("prefs")) {
+  if (want.has("mcp") || want.has("prefs") || (want.has("login") && credentialsInFiles())) {
     const srcFile = userConfigFileFor(fromDir, { home });
     const dstFile = userConfigFileFor(toDir, { home });
     const src = readJson(srcFile) || {};
@@ -199,33 +229,50 @@ export function share(fromDir, toDir, items, { fresh = false, home = HOME } = {}
       dst = r.config;
       notes.push(...r.notes);
     }
+    if (want.has("login") && credentialsInFiles()) dst = mergeAccount(src, dst).config;
     if (JSON.stringify(dst) !== before) {
       fs.mkdirSync(path.dirname(dstFile), { recursive: true });
       if (fs.existsSync(dstFile)) fs.copyFileSync(dstFile, `${dstFile}.before-sharing`);
       writeJson(dstFile, dst);
-    } else {
+    } else if (want.has("mcp") || want.has("prefs")) {
       notes.push("MCP servers and preferences: nothing to add");
     }
   }
 
-  if (want.has("mcpAuth")) {
-    if (!mcpAuthSupported()) {
-      notes.push("MCP sign-ins: kept in the macOS Keychain, not copied; run /mcp in the profile to authenticate");
+  if (want.has("login") || want.has("mcpAuth")) {
+    if (!credentialsInFiles()) {
+      notes.push("Sign-ins: kept in the macOS Keychain, not copied; use /login and /mcp in the profile");
     } else {
-      const src = readJson(credentialsFileFor(fromDir));
-      if (!src?.mcpOAuth || !Object.keys(src.mcpOAuth).length) {
-        notes.push("MCP sign-ins: the source has none");
-      } else {
-        const dstFile = credentialsFileFor(toDir);
-        const dst = readJson(dstFile) || {};
-        const r = mergeMcpAuth(src, dst);
-        if (r.notes.length) {
-          writeJson(dstFile, r.credentials);
-          fs.chmodSync(dstFile, 0o600);
-          notes.push(...r.notes);
+      const src = readJson(credentialsFileFor(fromDir)) || {};
+      const dstFile = credentialsFileFor(toDir);
+      let dst = readJson(dstFile) || {};
+      const before = JSON.stringify(dst);
+      let replaced = false;
+      if (want.has("login")) {
+        const r = mergeLogin(src, dst);
+        dst = r.credentials;
+        replaced = r.replaced;
+        notes.push(...r.notes);
+      }
+      if (want.has("mcpAuth")) {
+        if (!src.mcpOAuth || !Object.keys(src.mcpOAuth).length) {
+          notes.push("MCP sign-ins: the source has none");
         } else {
-          notes.push("MCP sign-ins: the target already has them");
+          const r = mergeMcpAuth(src, dst);
+          dst = r.credentials;
+          notes.push(...(r.notes.length ? r.notes : ["MCP sign-ins: the target already has them"]));
         }
+      }
+      if (JSON.stringify(dst) !== before) {
+        fs.mkdirSync(toDir, { recursive: true });
+        if (replaced) {
+          const backup = `${dstFile}.before-sharing-${stamp()}`;
+          fs.copyFileSync(dstFile, backup);
+          fs.chmodSync(backup, 0o600);
+          notes.push(`Claude login: the target's old sign-in was kept as ${backup}`);
+        }
+        writeJson(dstFile, dst);
+        fs.chmodSync(dstFile, 0o600);
       }
     }
   }

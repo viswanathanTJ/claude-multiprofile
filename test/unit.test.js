@@ -2462,6 +2462,45 @@ test("share: share() reads the default profile's ~/.claude.json and writes the t
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test("share: mergeLogin copies the Claude sign-in and keeps the target's MCP sign-ins", async () => {
+  const { mergeLogin } = await import("../src/share.js");
+  const src = { claudeAiOauth: { accessToken: "SRC" }, mcpOAuth: { "a|1": {} } };
+  const r = mergeLogin(src, { claudeAiOauth: { accessToken: "OLD" }, mcpOAuth: { "b|2": {} } });
+  assert.equal(r.credentials.claudeAiOauth.accessToken, "SRC");
+  assert.deepEqual(Object.keys(r.credentials.mcpOAuth), ["b|2"], "only the login is touched");
+  assert.equal(r.replaced, true);
+  assert.equal(mergeLogin(src, {}).replaced, false);
+  assert.match(mergeLogin(src, { claudeAiOauth: { accessToken: "SRC" } }).notes[0], /already the same/);
+  assert.match(mergeLogin({}, {}).notes[0], /not signed in/);
+});
+
+test("share: login is a copy: the target's old sign-in is kept aside, and the account comes along", { skip: process.platform === "darwin" }, async () => {
+  const { share } = await import("../src/share.js");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-login-")));
+  const def = path.join(home, ".claude"), b = path.join(home, ".claude-b");
+  fs.mkdirSync(def, { recursive: true });
+  fs.mkdirSync(b, { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "def@x" } }));
+  fs.writeFileSync(path.join(b, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "b@x" }, numStartups: 3 }));
+  fs.writeFileSync(path.join(def, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "DEF" } }));
+  fs.writeFileSync(path.join(b, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "B" } }), { mode: 0o600 });
+  share(def, b, ["login"], { home });
+  const creds = JSON.parse(fs.readFileSync(path.join(b, ".credentials.json"), "utf8"));
+  assert.equal(creds.claudeAiOauth.accessToken, "DEF");
+  assert.ok(!fs.lstatSync(path.join(b, ".credentials.json")).isSymbolicLink(), "a copy, so /login in b changes b only");
+  const cfg = JSON.parse(fs.readFileSync(path.join(b, ".claude.json"), "utf8"));
+  assert.equal(cfg.oauthAccount.emailAddress, "def@x");
+  assert.equal(cfg.numStartups, 3);
+  const kept = fs.readdirSync(b).filter((n) => n.startsWith(".credentials.json.before-sharing-"));
+  assert.equal(kept.length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(b, kept[0]), "utf8")).claudeAiOauth.accessToken, "B");
+  assert.equal(fs.statSync(path.join(b, kept[0])).mode & 0o777, 0o600);
+  // A second run changes nothing and keeps no second copy.
+  assert.match(share(def, b, ["login"], { home }).join("\n"), /already the same/);
+  assert.equal(fs.readdirSync(b).filter((n) => n.startsWith(".credentials.json.before-sharing-")).length, 1);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test("share: link command shares from default into a profile without prompts", async () => {
   const { execFileSync } = await import("node:child_process");
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-linkcmd-")));

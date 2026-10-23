@@ -4,7 +4,7 @@
 
 import { select, checkbox, confirm } from "@inquirer/prompts";
 import { listProfiles } from "./profile.js";
-import { share, SHARE_ITEMS, mcpAuthSupported } from "../share.js";
+import { share, SHARE_ITEMS, CREDENTIAL_ITEMS, credentialsInFiles } from "../share.js";
 import { ok, info, warn, pathStr, tildify } from "../util.js";
 
 const ITEM_VALUES = SHARE_ITEMS.map((i) => i.value);
@@ -25,9 +25,9 @@ function parseItems(text) {
   return items;
 }
 
-// Every item this platform supports (MCP sign-ins are Linux only).
+// Every item this platform supports (sign-ins are Linux only: macOS keeps them in the Keychain).
 export function allShareItems() {
-  return SHARE_ITEMS.filter((i) => i.value !== "mcpAuth" || mcpAuthSupported()).map((i) => i.value);
+  return SHARE_ITEMS.filter((i) => !CREDENTIAL_ITEMS.includes(i.value) || credentialsInFiles()).map((i) => i.value);
 }
 
 // The items to share, asked as a checklist with everything ticked: Enter shares all of it.
@@ -70,6 +70,9 @@ export async function link(args) {
   info(`From ${source.name} (${pathStr(tildify(source.configDir))}) into ${target.name} (${pathStr(tildify(target.configDir))}): ${items.join(", ")}`);
   if (target.name === "default") warn("The target is your default profile: its own copies are moved aside, not deleted.");
   info("Close Claude in the target profile first: it rewrites its .claude.json while it runs.");
+  if (items.includes("login")) {
+    warn("Claude login: both profiles will be one account with one refresh token; when one refreshes, the other may need /login. /login in the target switches it to its own sign-in.");
+  }
   if (items.includes("mcpAuth")) {
     warn("MCP sign-ins: both profiles will hold the same refresh tokens; when one refreshes, the other may need /mcp → Authenticate again.");
   }
