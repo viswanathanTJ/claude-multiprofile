@@ -11,6 +11,7 @@ import { select } from "@inquirer/prompts";
 import { add } from "./commands/add.js";
 import { doctor } from "./commands/doctor.js";
 import { extensions } from "./commands/extensions.js";
+import { link } from "./commands/link.js";
 import { list } from "./commands/list.js";
 import { remove } from "./commands/remove.js";
 import { rename } from "./commands/rename.js";
@@ -61,6 +62,9 @@ COMMANDS
                          changes to your profiles (--no-fix: install only)
   switch [NAME]          Use NAME for claude in every terminal (asks if NAME is left out)
   current                Show the profile in use
+  link [SOURCE] [TARGET] Share history, skills and other setup (linked), MCP servers
+                         and preferences (copied) from one Code profile to another
+                         (--items history,setup,mcp,prefs,mcpAuth; asks if left out)
   shell-init [SHELL]     Print the claude wrapper for fish, bash or zsh
   install-shim          Make every claude start (scripts, cron, IDEs too) use the profile in use
   remove-shim           Put the original claude back
@@ -102,12 +106,13 @@ async function pickCommand() {
       { name: "self-update  Show or change how each profile updates", value: "self-update" },
       { name: "switch       Switch Claude Code to a profile (every terminal)", value: "switch" },
       { name: "current      Show the profile in use", value: "current" },
+      { name: "link         Share history, setup, MCP servers between profiles", value: "link" },
       { name: "shell-init   Print the claude wrapper (fish, bash, zsh)", value: "shell-init" },
       { name: "upgrade      Upgrade claude-multiprofile to the latest version", value: "upgrade" },
       { name: "help         Show full help text", value: "help" },
       { name: "exit", value: "exit" },
     ],
-    pageSize: 13,
+    pageSize: 14,
   });
 }
 
@@ -165,7 +170,7 @@ export async function run(argv) {
   if (argv[0]) remindIfFixesPending(cmd);
 
   const handlers = {
-    add, list, status, doctor, extensions, rename, repair, remove, upgrade,
+    add, link, list, status, doctor, extensions, rename, repair, remove, upgrade,
     "self-update": selfUpdate,
     switch: switchCmd,
     "set-default": setDefaultCmd,   // same as switch

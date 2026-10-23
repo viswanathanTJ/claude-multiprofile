@@ -75,12 +75,37 @@ claude-multiprofile remove-shim    # puts the original link back
 The shim runs the real Claude binary that the link pointed to. If Claude's own updates replace the link,
 run `install-shim` again. If you move this tool's folder, run it again too.
 
-## Share chat history between profiles
+## Share history, setup and MCP servers between profiles
 
-When you `add` a Claude Code profile, the wizard asks whether to share its chat history with an existing
-profile (or `default`, your normal `~/.claude`). Sharing links the `projects` folder and `history.jsonl`
-to that profile, so both see the same sessions. The source keeps its files. If the new profile already had
-a history folder, it is moved aside as `projects.before-sharing-<time>`, not deleted.
+`claude-multiprofile link` shares from one Claude Code profile (the source) into another (the target).
+It asks for both, then for what to share. `add` asks the same when you create a profile: "Link to another
+profile?".
+
+```sh
+claude-multiprofile link                                  # asks source, target and what to share
+claude-multiprofile link default work --items mcp,prefs   # no questions; add --yes to skip the confirm
+```
+
+| Item | How | What |
+|---|---|---|
+| `history` | linked | `projects/`, `history.jsonl`, `file-history/` (so `/rewind` works on a shared session) |
+| `setup` | linked | `skills/`, `commands/`, `agents/`, `hooks/`, `output-styles/`, `CLAUDE.md`, `keybindings.json` |
+| `mcp` | copied | MCP servers: user scope, and the per-folder ones `claude mcp add` makes by default |
+| `prefs` | copied | onboarding done and theme (no first-run screen), each folder's trust and allowed tools |
+| `mcpAuth` | copied | MCP servers' sign-ins. Off unless chosen: both profiles then hold one refresh token, and when one refreshes the other may have to authenticate again with `/mcp`. Linux only; on macOS they are in the Keychain |
+
+Linked items are one copy: a skill added in either profile shows in both. The link points at where the
+source's entry really is, so linking to a profile that is itself linked doesn't make a chain. What the
+target had is moved aside as `<name>.before-sharing-<time>`, not deleted.
+
+Copied items live in `.claude.json`, which also holds each profile's account and state, so they can't be
+linked. They are only added: a server or setting the target already has is kept. The old file is kept as
+`.claude.json.before-sharing`. Run `link` again later to pick up new ones. Close Claude in the target
+first, since it rewrites that file while it runs.
+
+Never shared: the Claude sign-in and account, which are what make a profile a different account, and
+`settings.json`, which often holds per-profile settings (`add` can copy it instead). Removing or renaming
+a source profile breaks the target's links.
 
 ## Why this exists
 
