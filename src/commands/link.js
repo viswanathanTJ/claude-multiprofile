@@ -25,19 +25,15 @@ function parseItems(text) {
   return items;
 }
 
-// The items to share, asked as a checklist. MCP sign-ins are confirmed apart, with what they cost.
+// Every item this platform supports (MCP sign-ins are Linux only).
+export function allShareItems() {
+  return SHARE_ITEMS.filter((i) => i.value !== "mcpAuth" || mcpAuthSupported()).map((i) => i.value);
+}
+
+// The items to share, asked as a checklist with everything ticked: Enter shares all of it.
 export async function askShareItems(sourceName) {
-  const choices = SHARE_ITEMS.filter((i) => i.value !== "mcpAuth" || mcpAuthSupported());
-  const items = await checkbox({ message: `Share what from ${sourceName}?`, choices, pageSize: choices.length });
-  if (items.includes("mcpAuth")) {
-    const sure = await confirm({
-      message:
-        "Copy MCP sign-ins? Both profiles will hold the same refresh tokens; when one refreshes, the other may need /mcp → Authenticate again.",
-      default: false,
-    });
-    if (!sure) return items.filter((i) => i !== "mcpAuth");
-  }
-  return items;
+  const choices = SHARE_ITEMS.filter((i) => allShareItems().includes(i.value));
+  return checkbox({ message: `Share what from ${sourceName}? (all ticked; space to untick)`, choices, pageSize: choices.length });
 }
 
 export async function link(args) {
@@ -64,7 +60,8 @@ export async function link(args) {
     : findProfile(await select({ message: "Share into which profile (target)?", choices: targets.map((p) => ({ name: label(p), value: p.name })) }));
   if (target.name === source.name) throw new Error("Source and target are the same profile.");
 
-  if (!items) items = await askShareItems(source.name);
+  // No --items: everything. --yes takes that as it is; otherwise the checklist opens with all ticked.
+  if (!items) items = yes ? allShareItems() : await askShareItems(source.name);
   if (!items.length) {
     warn("Nothing chosen. Nothing was changed.");
     return;
@@ -73,6 +70,9 @@ export async function link(args) {
   info(`From ${source.name} (${pathStr(tildify(source.configDir))}) into ${target.name} (${pathStr(tildify(target.configDir))}): ${items.join(", ")}`);
   if (target.name === "default") warn("The target is your default profile: its own copies are moved aside, not deleted.");
   info("Close Claude in the target profile first: it rewrites its .claude.json while it runs.");
+  if (items.includes("mcpAuth")) {
+    warn("MCP sign-ins: both profiles will hold the same refresh tokens; when one refreshes, the other may need /mcp → Authenticate again.");
+  }
   if (!yes && !(await confirm({ message: "Apply?", default: true }))) {
     warn("Cancelled. Nothing was changed.");
     return;

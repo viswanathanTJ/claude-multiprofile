@@ -44,7 +44,7 @@ export const SHARE_ITEMS = [
   { value: "setup", name: "Skills, commands, agents, hooks, output styles, CLAUDE.md, keybindings: linked", checked: true },
   { value: "mcp", name: "MCP servers, user and per-folder: copied, the target's own are kept", checked: true },
   { value: "prefs", name: "Onboarding, theme, per-folder trust and allowed tools: copied", checked: true },
-  { value: "mcpAuth", name: "MCP sign-ins (tokens): copied; a shared token can sign the other profile out", checked: false },
+  { value: "mcpAuth", name: "MCP sign-ins (tokens): copied; a shared token can sign the other profile out", checked: true },
 ];
 
 export function mcpAuthSupported() {

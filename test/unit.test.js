@@ -2482,6 +2482,10 @@ test("share: link command shares from default into a profile without prompts", a
     assert.equal(fs.readlinkSync(path.join(b, "commands")), path.join(home, ".claude", "commands"));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(b, ".claude.json"), "utf8")).mcpServers, { mem: { command: "mem" } });
     assert.throws(() => run("default", "b", "--items", "bogus", "--yes"), /Unknown item: bogus/);
+    // No --items: everything.
+    const out = run("default", "b", "--yes");
+    assert.match(out, /history, setup, mcp, prefs/);
+    assert.ok(fs.lstatSync(path.join(b, "projects")).isSymbolicLink());
     assert.throws(() => run("b", "b", "--items", "mcp", "--yes"), /same profile/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

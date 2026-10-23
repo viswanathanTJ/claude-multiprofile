@@ -78,12 +78,14 @@ run `install-shim` again. If you move this tool's folder, run it again too.
 ## Share history, setup and MCP servers between profiles
 
 `claude-multiprofile link` shares from one Claude Code profile (the source) into another (the target).
-It asks for both, then for what to share. `add` asks the same when you create a profile: "Link to another
+It asks for both, then for what to share, with every item ticked: Enter shares everything. Without
+`--items`, all items are shared. `add` asks the same when you create a profile: "Link to another
 profile?".
 
 ```sh
 claude-multiprofile link                                  # asks source, target and what to share
-claude-multiprofile link default work --items mcp,prefs   # no questions; add --yes to skip the confirm
+claude-multiprofile link default work --yes              # everything, no questions
+claude-multiprofile link default work --items mcp,prefs   # only these; add --yes to skip the confirm
 ```
 
 | Item | How | What |
@@ -92,7 +94,7 @@ claude-multiprofile link default work --items mcp,prefs   # no questions; add --
 | `setup` | linked | `skills/`, `commands/`, `agents/`, `hooks/`, `output-styles/`, `CLAUDE.md`, `keybindings.json` |
 | `mcp` | copied | MCP servers: user scope, and the per-folder ones `claude mcp add` makes by default |
 | `prefs` | copied | onboarding done and theme (no first-run screen), each folder's trust and allowed tools |
-| `mcpAuth` | copied | MCP servers' sign-ins. Off unless chosen: both profiles then hold one refresh token, and when one refreshes the other may have to authenticate again with `/mcp`. Linux only; on macOS they are in the Keychain |
+| `mcpAuth` | copied | MCP servers' sign-ins. Both profiles then hold one refresh token, and when one refreshes the other may have to authenticate again with `/mcp`. Linux only; on macOS they are in the Keychain |
 
 Linked items are one copy: a skill added in either profile shows in both. The link points at where the
 source's entry really is, so linking to a profile that is itself linked doesn't make a chain. What the
