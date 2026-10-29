@@ -153,6 +153,15 @@ export function useLogin(dir, name, { home = HOME, force = false } = {}) {
   return notes;
 }
 
+export function renameLogin(dir, from, to) {
+  checkLoginName(from);
+  checkLoginName(to);
+  if (!fs.existsSync(loginFile(dir, from))) throw new Error(`No saved login named "${from}".`);
+  if (fs.existsSync(loginFile(dir, to))) throw new Error(`A login named "${to}" is already saved.`);
+  fs.renameSync(loginFile(dir, from), loginFile(dir, to));
+  return [`Login "${from}" is now "${to}"`];
+}
+
 export function removeLogin(dir, name) {
   checkLoginName(name);
   const file = loginFile(dir, name);

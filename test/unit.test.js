@@ -2554,7 +2554,7 @@ test("history: linkHistory shares projects and history.jsonl and keeps the old c
 });
 
 test("logins: save two accounts in one profile, switch between them, keep the latest tokens", { skip: process.platform === "darwin" }, async () => {
-  const { saveLogin, useLogin, listLogins, removeLogin, activeLoginName } = await import("../src/logins.js");
+  const { saveLogin, useLogin, listLogins, renameLogin, removeLogin, activeLoginName } = await import("../src/logins.js");
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-logins-")));
   const dir = path.join(home, ".claude");
   fs.mkdirSync(dir, { recursive: true });
@@ -2608,7 +2608,11 @@ test("logins: save two accounts in one profile, switch between them, keep the la
     assert.equal(creds().claudeAiOauth.accessToken, "P1");
     assert.throws(() => useLogin(dir, "nope", { home }), /No saved login named "nope". Saved: personal, work/);
 
-    removeLogin(dir, "work");
+    assert.throws(() => renameLogin(dir, "work", "personal"), /already saved/);
+    assert.throws(() => renameLogin(dir, "nope", "x"), /No saved login/);
+    renameLogin(dir, "work", "office");
+    assert.deepEqual(listLogins(dir, { home }).map((l) => [l.name, l.email]), [["office", "me@work"], ["personal", "me@home"]]);
+    removeLogin(dir, "office");
     assert.deepEqual(listLogins(dir, { home }).map((l) => l.name), ["personal"]);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

@@ -69,8 +69,8 @@ COMMANDS
   login [NAME]           Switch the account of the profile in use to a saved login,
                          keeping its history and setup (Linux; asks if NAME is left out)
   login save NAME        Save the account signed in now as NAME
-  login list | remove NAME
-                         Show or forget saved logins (--profile P: another profile)
+  login list | rename OLD NEW | remove NAME
+                         Show, rename or forget saved logins (--profile P: another profile)
   shell-init [SHELL]     Print the claude wrapper for fish, bash or zsh
   install-shim          Make every claude start (scripts, cron, IDEs too) use the profile in use
   remove-shim           Put the original claude back

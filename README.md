@@ -124,7 +124,8 @@ claude-multiprofile login personal    # or: login use personal
 claude-multiprofile login work
 claude-multiprofile login             # asks which
 claude-multiprofile login list        # * marks the account signed in now
-claude-multiprofile login remove work
+claude-multiprofile login rename work office
+claude-multiprofile login remove office
 ```
 
 It works on the profile `claude` would open here, or the one named with `--profile NAME`. Each saved login is the
@@ -423,7 +424,7 @@ Same as `switch --all`.
 
 Prints the profile in use.
 
-### `claude-multiprofile login [NAME | save NAME | list | remove NAME] [--profile P] [--force]`
+### `claude-multiprofile login [NAME | save NAME | list | rename OLD NEW | remove NAME] [--profile P] [--force]`
 
 Switches the account of a profile between saved logins (Linux). See [Switch accounts in one profile](#switch-accounts-in-one-profile-linux).
 

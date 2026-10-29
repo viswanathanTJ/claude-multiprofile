@@ -1,13 +1,13 @@
-// `claude-multiprofile login [list | save NAME | use NAME | NAME | remove NAME] [--profile P] [--force]`:
+// `claude-multiprofile login [list | save NAME | use NAME | NAME | rename OLD NEW | remove NAME] [--profile P] [--force]`:
 // several Claude accounts in one profile, switched without touching its history or setup.
 // With no subcommand it asks which saved login to use. See src/logins.js.
 
 import { select } from "@inquirer/prompts";
 import { resolveProfile } from "./profile.js";
-import { listLogins, saveLogin, useLogin, removeLogin, requireLoginFiles } from "../logins.js";
+import { listLogins, saveLogin, useLogin, renameLogin, removeLogin, requireLoginFiles } from "../logins.js";
 import { ok, info, warn, pathStr, tildify, command } from "../util.js";
 
-const SUBCOMMANDS = ["list", "save", "use", "remove"];
+const SUBCOMMANDS = ["list", "save", "use", "rename", "remove"];
 
 function printList(profile, logins) {
   info(`Saved logins in ${profile.name} (${pathStr(tildify(profile.configDir))}):`);
@@ -37,7 +37,7 @@ export async function login(args) {
   const profile = resolveProfile(profileName);
   const dir = profile.configDir;
 
-  let [sub, name] = rest;
+  let [sub, name, newName] = rest;
   // `login NAME` is short for `login use NAME`.
   if (sub && !SUBCOMMANDS.includes(sub)) [sub, name] = ["use", sub];
 
@@ -45,6 +45,11 @@ export async function login(args) {
   if (sub === "save") {
     if (!name) throw new Error("Usage: claude-multiprofile login save NAME");
     for (const line of saveLogin(dir, name, { replace: force })) ok(line);
+    return;
+  }
+  if (sub === "rename") {
+    if (!name || !newName) throw new Error("Usage: claude-multiprofile login rename OLD NEW");
+    for (const line of renameLogin(dir, name, newName)) ok(line);
     return;
   }
   if (sub === "remove") {
