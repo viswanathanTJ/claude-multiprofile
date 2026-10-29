@@ -7,18 +7,21 @@ project is pre-1.0, so minor breakage may occur between 0.x releases.
 
 ### Added
 
-- **`switch [NAME] [--all|--session]`** chooses the Claude Code profile. Asks whether it applies to all terminals (saved) or this session only, unless a flag says which. Asks for the profile unless NAME is given.
+- **`switch [NAME] [--all|--session]`** chooses the Claude Code profile. Asks whether it applies to every terminal (saved) or to this session only, unless a flag says which. Asks for the profile unless NAME is given.
 - **`set-default [NAME]`** is the same as `switch --all`.
-- **`current`** shows the profile in use (this session's choice, else the saved one).
-- **`shell-init [fish|bash|zsh] [--install]`** prints the `claude` wrapper; `--install` writes it into the shell config as a marked block (`# >>> claude-multiprofile wrapper >>>`). The wrapper also provides `claude-multiprofile switch --session` for the current shell.
-- **`install-shim` / `remove-shim`** put a `claude` shim at `~/.local/bin/claude`, so every start (scripts, cron, IDE terminals) uses the profile in use. `remove-shim` restores the original link.
-- **Chat history sharing** when adding a Claude Code profile: links `projects/` and `history.jsonl` to an existing profile or `default`. A copy the new profile already had is moved aside as `*.before-sharing-<time>`, never deleted.
-- Menu entries for `switch`, `current` and `shell-init`.
+- **`current`** prints the profile in use.
+- **`claude --profile NAME`** (or `--profile=NAME`) in the `claude` wrapper runs one start with that profile, e.g. `claude --profile work --resume`.
+- **`shell-init [fish|bash|zsh] [--install]`** prints the `claude` wrapper. `--install` writes it: fish gets `~/.config/fish/functions/claude.fish` (loaded on first use); bash and zsh get a marked block in the rc file. An older block is replaced.
+- **`install-shim` / `remove-shim`** put a `claude` shim at `~/.local/bin/claude`, so scripts, cron jobs and IDE terminals use the profile in use. `remove-shim` restores the original link.
+- **`link [SOURCE] [TARGET] [--items LIST] [--yes]`** shares from one Claude Code profile into another, asking for whatever is left out (all items, unless `--items` names some; the checklist opens with all ticked): chat history (`projects/`, `history.jsonl`, `file-history/`) and setup (skills, commands, agents, hooks, output styles, `CLAUDE.md`, keybindings) are linked; MCP servers (user and per-folder scope), preferences (onboarding, theme, folder trust and allowed tools) the Claude login and MCP sign-ins (Linux) are copied without replacing what the target has. An existing copy is moved aside as `*.before-sharing-<time>`, never deleted.
+- **`add` asks "Link to another profile?"** and then what to share, the same as `link`.
+- **`resolve-dir [NAME]`** (used by the wrapper and the shim) prints the config folder for a profile. Without NAME it keeps a `CLAUDE_CONFIG_DIR` that is already set, so each profile's own command (`claude-work`) opens that profile rather than the one chosen with `switch`.
+- **`login [NAME]`** switches the account of a profile (the default one too) between saved logins, keeping its history, settings and MCP servers (Linux). `login save NAME` saves the account signed in now; `login list` and `login remove NAME` show and forget them; `--profile P` works on another profile. Switching away saves that account's latest tokens first, and stops if the account signed in now is not saved (`--force` drops it).
+- Menu entries and help text for the new commands.
 
 ### Changed
 
 - The update notice is no longer shown for `resolve-dir` and `shell-init`, which the wrappers call on every start.
-- Help text lists the new commands.
 
 ## 0.1.37 (2026-10-20)
 

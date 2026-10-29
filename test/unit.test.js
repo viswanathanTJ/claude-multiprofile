@@ -2325,9 +2325,215 @@ test("profile: fish wrapper calls resolve-dir and keeps the real claude path", a
   assert.doesNotMatch(text, /CMP_EVAL_FILE|claude-multiprofile --wraps/);
 });
 
+test("profile: resolve-dir keeps a CLAUDE_CONFIG_DIR that is already set (profile aliases)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-resolve-"));
+  const cfg = path.join(home, ".config");
+  fs.mkdirSync(path.join(cfg, "claude-multiprofile"), { recursive: true });
+  fs.writeFileSync(path.join(cfg, "claude-multiprofile", "profiles.json"), JSON.stringify({
+    version: 1,
+    profiles: [{ name: "c", type: "code", desktop: null, code: { configDir: path.join(home, ".claude-c") } }],
+  }));
+  fs.writeFileSync(path.join(cfg, "claude-multiprofile", "default"), "c\n");
+  const resolve = (env, ...args) => execFileSync(process.execPath, [path.resolve("bin/claude-multiprofile.js"), "resolve-dir", ...args], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: cfg, NO_COLOR: "1", CLAUDE_CONFIG_DIR: "", CLAUDE_MP_PROFILE: "", ...env },
+  }).trim();
+  try {
+    assert.equal(resolve({}), path.join(home, ".claude-c"), "nothing set: the saved profile");
+    assert.equal(resolve({ CLAUDE_CONFIG_DIR: "/x/.claude-test" }), "/x/.claude-test", "an alias's folder wins");
+    assert.equal(resolve({ CLAUDE_CONFIG_DIR: "/x/.claude-test" }, "default"), "", "an explicit NAME still wins");
+    assert.equal(resolve({ CLAUDE_MP_PROFILE: "default" }), "", "the wrapper's default run is not re-resolved to the saved one");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("profile: the wrappers mark a default run so the shim keeps it", async () => {
+  const { shellInitCmd } = await import("../src/commands/profile.js");
+  for (const shell of ["fish", "bash"]) {
+    const lines = [];
+    const orig = console.log;
+    console.log = (...a) => lines.push(a.join(" "));
+    try { shellInitCmd([shell]); } finally { console.log = orig; }
+    assert.match(lines.join("\n"), /env -u CLAUDE_CONFIG_DIR CLAUDE_MP_PROFILE=default /, shell);
+  }
+});
+
+test("share: linkEntries does not chain or loop when profiles already share", async () => {
+  const { linkEntries } = await import("../src/history.js");
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-link-")));
+  const a = path.join(base, "a"), b = path.join(base, "b"), c = path.join(base, "c");
+  fs.mkdirSync(path.join(a, "skills", "s1"), { recursive: true });
+  linkEntries(a, b, ["skills"]);
+  // b -> a; linking c to b points c straight at a.
+  linkEntries(b, c, ["skills"]);
+  assert.equal(fs.readlinkSync(path.join(c, "skills")), path.join(a, "skills"));
+  // Linking back the other way is a no-op, not a loop that moves a's real folder aside.
+  assert.match(linkEntries(b, a, ["skills"]).join("\n"), /already shared/);
+  assert.ok(fs.lstatSync(path.join(a, "skills")).isDirectory());
+  assert.match(linkEntries(a, b, ["commands"]).join("\n"), /not in the source, skipped/);
+  assert.throws(() => linkEntries(a, a, ["skills"]), /same folder/);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("share: linkEntries replace deletes the target's copy only when asked", async () => {
+  const { linkEntries } = await import("../src/history.js");
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-link-")));
+  const a = path.join(base, "a"), b = path.join(base, "b");
+  fs.mkdirSync(path.join(a, "agents"), { recursive: true });
+  fs.writeFileSync(path.join(a, "CLAUDE.md"), "shared");
+  fs.mkdirSync(path.join(b, "agents"), { recursive: true });
+  fs.writeFileSync(path.join(b, "CLAUDE.md"), "seeded copy");
+  linkEntries(a, b, ["agents", "CLAUDE.md"], { replace: true });
+  assert.equal(fs.readFileSync(path.join(b, "CLAUDE.md"), "utf8"), "shared");
+  assert.ok(fs.lstatSync(path.join(b, "CLAUDE.md")).isSymbolicLink());
+  assert.deepEqual(fs.readdirSync(b).filter((n) => n.includes("before-sharing")), []);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("share: mergeMcp adds user and per-folder servers and keeps the target's own", async () => {
+  const { mergeMcp } = await import("../src/share.js");
+  const src = {
+    mcpServers: { mem: { command: "mem" }, both: { command: "src" } },
+    projects: { "/w/ramco": { mcpServers: { rtask: { type: "http", url: "https://r/mcp" } }, lastCost: 9 }, "/w/none": { lastCost: 1 } },
+  };
+  const dst = { mcpServers: { both: { command: "mine" } }, oauthAccount: { emailAddress: "x" }, projects: { "/w/ramco": { lastCost: 2 } } };
+  const { config, notes } = mergeMcp(src, dst);
+  assert.deepEqual(config.mcpServers, { both: { command: "mine" }, mem: { command: "mem" } });
+  assert.deepEqual(config.projects["/w/ramco"], { lastCost: 2, mcpServers: { rtask: { type: "http", url: "https://r/mcp" } } });
+  assert.equal(config.projects["/w/none"], undefined, "folders without servers are not copied");
+  assert.deepEqual(config.oauthAccount, { emailAddress: "x" }, "the target's account is untouched");
+  assert.match(notes.join("\n"), /kept the target's own both/);
+  assert.equal(dst.mcpServers.mem, undefined, "the input is not changed");
+});
+
+test("share: mergePrefs copies onboarding and folder trust, never account or usage", async () => {
+  const { mergePrefs } = await import("../src/share.js");
+  const src = {
+    hasCompletedOnboarding: true, lastOnboardingVersion: "2.1.0", theme: "dark", oauthAccount: { emailAddress: "a" }, userID: "u",
+    projects: { "/w": { hasTrustDialogAccepted: true, allowedTools: ["Bash(ls)"], lastCost: 5 } },
+  };
+  const { config } = mergePrefs(src, { theme: "light", projects: { "/w": { allowedTools: [] } } });
+  assert.equal(config.hasCompletedOnboarding, true);
+  assert.equal(config.theme, "light", "the target's own choice is kept");
+  assert.equal(config.oauthAccount, undefined);
+  assert.equal(config.userID, undefined);
+  assert.deepEqual(config.projects["/w"], { allowedTools: [], hasTrustDialogAccepted: true });
+});
+
+test("share: mergeMcpAuth copies MCP tokens and never the Claude sign-in", async () => {
+  const { mergeMcpAuth } = await import("../src/share.js");
+  const src = { claudeAiOauth: { accessToken: "SRC" }, mcpOAuth: { "rtask|abc": { accessToken: "r" }, "x|1": { accessToken: "src-x" } } };
+  const dst = { claudeAiOauth: { accessToken: "DST" }, mcpOAuth: { "x|1": { accessToken: "dst-x" } } };
+  const { credentials, notes } = mergeMcpAuth(src, dst);
+  assert.equal(credentials.claudeAiOauth.accessToken, "DST");
+  assert.equal(credentials.mcpOAuth["rtask|abc"].accessToken, "r");
+  assert.equal(credentials.mcpOAuth["x|1"].accessToken, "dst-x");
+  assert.deepEqual(notes, ["MCP sign-ins: copied rtask"]);
+});
+
+test("share: share() reads the default profile's ~/.claude.json and writes the target's files", async () => {
+  const { share, userConfigFileFor } = await import("../src/share.js");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-share-")));
+  const def = path.join(home, ".claude"), b = path.join(home, ".claude-b");
+  fs.mkdirSync(path.join(def, "skills", "s"), { recursive: true });
+  fs.mkdirSync(b, { recursive: true });
+  assert.equal(userConfigFileFor(def, { home }), path.join(home, ".claude.json"));
+  assert.equal(userConfigFileFor(b, { home }), path.join(b, ".claude.json"));
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ hasCompletedOnboarding: true, projects: { "/w": { mcpServers: { rtask: { type: "http" } } } } }));
+  fs.writeFileSync(path.join(def, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "DEF" }, mcpOAuth: { "rtask|h": { accessToken: "t" } } }));
+  fs.writeFileSync(path.join(b, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "B" } }), { mode: 0o600 });
+  share(def, b, ["history", "setup", "mcp", "prefs", "mcpAuth"], { home });
+  const cfg = JSON.parse(fs.readFileSync(path.join(b, ".claude.json"), "utf8"));
+  assert.equal(cfg.hasCompletedOnboarding, true);
+  assert.deepEqual(cfg.projects["/w"].mcpServers, { rtask: { type: "http" } });
+  assert.equal(fs.statSync(path.join(b, ".claude.json")).mode & 0o777, 0o600);
+  assert.ok(fs.lstatSync(path.join(b, "projects")).isSymbolicLink());
+  assert.equal(fs.readlinkSync(path.join(b, "skills")), path.join(def, "skills"));
+  if (process.platform !== "darwin") {
+    const creds = JSON.parse(fs.readFileSync(path.join(b, ".credentials.json"), "utf8"));
+    assert.equal(creds.claudeAiOauth.accessToken, "B");
+    assert.equal(creds.mcpOAuth["rtask|h"].accessToken, "t");
+    assert.equal(fs.statSync(path.join(b, ".credentials.json")).mode & 0o777, 0o600);
+  }
+  // Again: nothing more to add.
+  assert.match(share(def, b, ["mcp", "prefs"], { home }).join("\n"), /nothing to add/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test("share: mergeLogin copies the Claude sign-in and keeps the target's MCP sign-ins", async () => {
+  const { mergeLogin } = await import("../src/share.js");
+  const src = { claudeAiOauth: { accessToken: "SRC" }, mcpOAuth: { "a|1": {} } };
+  const r = mergeLogin(src, { claudeAiOauth: { accessToken: "OLD" }, mcpOAuth: { "b|2": {} } });
+  assert.equal(r.credentials.claudeAiOauth.accessToken, "SRC");
+  assert.deepEqual(Object.keys(r.credentials.mcpOAuth), ["b|2"], "only the login is touched");
+  assert.equal(r.replaced, true);
+  assert.equal(mergeLogin(src, {}).replaced, false);
+  assert.match(mergeLogin(src, { claudeAiOauth: { accessToken: "SRC" } }).notes[0], /already the same/);
+  assert.match(mergeLogin({}, {}).notes[0], /not signed in/);
+});
+
+test("share: login is a copy: the target's old sign-in is kept aside, and the account comes along", { skip: process.platform === "darwin" }, async () => {
+  const { share } = await import("../src/share.js");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-login-")));
+  const def = path.join(home, ".claude"), b = path.join(home, ".claude-b");
+  fs.mkdirSync(def, { recursive: true });
+  fs.mkdirSync(b, { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "def@x" } }));
+  fs.writeFileSync(path.join(b, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "b@x" }, numStartups: 3 }));
+  fs.writeFileSync(path.join(def, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "DEF" } }));
+  fs.writeFileSync(path.join(b, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "B" } }), { mode: 0o600 });
+  share(def, b, ["login"], { home });
+  const creds = JSON.parse(fs.readFileSync(path.join(b, ".credentials.json"), "utf8"));
+  assert.equal(creds.claudeAiOauth.accessToken, "DEF");
+  assert.ok(!fs.lstatSync(path.join(b, ".credentials.json")).isSymbolicLink(), "a copy, so /login in b changes b only");
+  const cfg = JSON.parse(fs.readFileSync(path.join(b, ".claude.json"), "utf8"));
+  assert.equal(cfg.oauthAccount.emailAddress, "def@x");
+  assert.equal(cfg.numStartups, 3);
+  const kept = fs.readdirSync(b).filter((n) => n.startsWith(".credentials.json.before-sharing-"));
+  assert.equal(kept.length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(b, kept[0]), "utf8")).claudeAiOauth.accessToken, "B");
+  assert.equal(fs.statSync(path.join(b, kept[0])).mode & 0o777, 0o600);
+  // A second run changes nothing and keeps no second copy.
+  assert.match(share(def, b, ["login"], { home }).join("\n"), /already the same/);
+  assert.equal(fs.readdirSync(b).filter((n) => n.startsWith(".credentials.json.before-sharing-")).length, 1);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test("share: link command shares from default into a profile without prompts", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-linkcmd-")));
+  const cfg = path.join(home, ".config");
+  const b = path.join(home, ".claude-b");
+  fs.mkdirSync(path.join(home, ".claude", "commands"), { recursive: true });
+  fs.mkdirSync(b, { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ mcpServers: { mem: { command: "mem" } } }));
+  fs.mkdirSync(path.join(cfg, "claude-multiprofile"), { recursive: true });
+  fs.writeFileSync(path.join(cfg, "claude-multiprofile", "profiles.json"), JSON.stringify({
+    version: 1, profiles: [{ name: "b", type: "code", desktop: null, code: { configDir: b } }],
+  }));
+  const run = (...args) => execFileSync(process.execPath, [path.resolve("bin/claude-multiprofile.js"), "link", ...args], {
+    encoding: "utf8", env: { ...process.env, HOME: home, XDG_CONFIG_HOME: cfg, NO_COLOR: "1" },
+  });
+  try {
+    run("default", "b", "--items", "setup,mcp", "--yes");
+    assert.equal(fs.readlinkSync(path.join(b, "commands")), path.join(home, ".claude", "commands"));
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(b, ".claude.json"), "utf8")).mcpServers, { mem: { command: "mem" } });
+    assert.throws(() => run("default", "b", "--items", "bogus", "--yes"), /Unknown item: bogus/);
+    // No --items: everything.
+    const out = run("default", "b", "--yes");
+    assert.match(out, /history, setup, mcp, prefs/);
+    assert.ok(fs.lstatSync(path.join(b, "projects")).isSymbolicLink());
+    assert.throws(() => run("b", "b", "--items", "mcp", "--yes"), /same profile/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("history: linkHistory shares projects and history.jsonl and keeps the old copy aside", async () => {
   const { linkHistory } = await import("../src/history.js");
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-history-"));
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-history-")));
   const from = path.join(base, "from");
   const to = path.join(base, "to");
   fs.mkdirSync(path.join(from, "projects"), { recursive: true });
@@ -2338,10 +2544,107 @@ test("history: linkHistory shares projects and history.jsonl and keeps the old c
   assert.ok(notes.length >= 2);
   assert.equal(fs.readlinkSync(path.join(to, "projects")), path.join(from, "projects"));
   assert.equal(fs.readlinkSync(path.join(to, "history.jsonl")), path.join(from, "history.jsonl"));
+  assert.equal(fs.readlinkSync(path.join(to, "file-history")), path.join(from, "file-history"), "rewind checkpoints go with the sessions");
   const kept = fs.readdirSync(to).filter((n) => n.startsWith("projects.before-sharing-"));
   assert.equal(kept.length, 1);
   assert.equal(fs.readFileSync(path.join(to, kept[0], "old.txt"), "utf8"), "keep me");
   // Running it again changes nothing.
   assert.match(linkHistory(from, to).join("\n"), /already shared/);
   fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("logins: save two accounts in one profile, switch between them, keep the latest tokens", { skip: process.platform === "darwin" }, async () => {
+  const { saveLogin, useLogin, listLogins, removeLogin, activeLoginName } = await import("../src/logins.js");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-logins-")));
+  const dir = path.join(home, ".claude");
+  fs.mkdirSync(dir, { recursive: true });
+  const credsFile = path.join(dir, ".credentials.json");
+  const cfgFile = path.join(home, ".claude.json");
+  const signIn = (tok, uuid, email) => {
+    const creds = fs.existsSync(credsFile) ? JSON.parse(fs.readFileSync(credsFile, "utf8")) : {};
+    fs.writeFileSync(credsFile, JSON.stringify({ ...creds, claudeAiOauth: { accessToken: tok, refreshToken: `r-${tok}` } }), { mode: 0o600 });
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, "utf8"));
+    fs.writeFileSync(cfgFile, JSON.stringify({ ...cfg, oauthAccount: { accountUuid: uuid, emailAddress: email } }));
+  };
+  const creds = () => JSON.parse(fs.readFileSync(credsFile, "utf8"));
+  const cfg = () => JSON.parse(fs.readFileSync(cfgFile, "utf8"));
+  try {
+    fs.writeFileSync(cfgFile, JSON.stringify({ numStartups: 7, projects: { "/w": { allowedTools: ["x"] } } }));
+    fs.writeFileSync(credsFile, JSON.stringify({ mcpOAuth: { "srv|1": { accessToken: "m" } } }));
+    assert.throws(() => saveLogin(dir, "personal", { home }), /not signed in/);
+
+    signIn("P1", "u-p", "me@home");
+    assert.match(saveLogin(dir, "personal", { home })[0], /saved/);
+    assert.equal(fs.statSync(path.join(dir, "logins", "personal.json")).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.join(dir, "logins")).mode & 0o777, 0o700);
+    assert.throws(() => saveLogin(dir, "again", { home }), /already saved as "personal"/);
+
+    signIn("W1", "u-w", "me@work");
+    assert.throws(() => saveLogin(dir, "personal", { home }), /another account/);
+    assert.throws(() => saveLogin(dir, "../x", { home }), /not a usable login name/);
+    saveLogin(dir, "work", { home });
+    assert.equal(activeLoginName(dir, { home }), "work");
+
+    // Work refreshes its tokens while it runs; switching away keeps the refreshed ones.
+    signIn("W2", "u-w", "me@work");
+    const notes = useLogin(dir, "personal", { home });
+    assert.match(notes.join("\n"), /"work": kept its latest/);
+    assert.equal(creds().claudeAiOauth.accessToken, "P1");
+    assert.deepEqual(creds().mcpOAuth, { "srv|1": { accessToken: "m" } }, "MCP sign-ins untouched");
+    assert.equal(cfg().oauthAccount.emailAddress, "me@home");
+    assert.equal(cfg().numStartups, 7, "the rest of .claude.json untouched");
+    assert.deepEqual(cfg().projects, { "/w": { allowedTools: ["x"] } });
+    assert.equal(fs.statSync(credsFile).mode & 0o777, 0o600);
+
+    useLogin(dir, "work", { home });
+    assert.equal(creds().claudeAiOauth.accessToken, "W2");
+    assert.match(useLogin(dir, "work", { home })[0], /Already signed in/);
+    assert.deepEqual(listLogins(dir, { home }).map((l) => [l.name, l.active, l.email]), [["personal", false, "me@home"], ["work", true, "me@work"]]);
+
+    // An account that is not saved is not dropped without --force.
+    signIn("X1", "u-x", "other@x");
+    assert.throws(() => useLogin(dir, "personal", { home }), /not saved/);
+    useLogin(dir, "personal", { home, force: true });
+    assert.equal(creds().claudeAiOauth.accessToken, "P1");
+    assert.throws(() => useLogin(dir, "nope", { home }), /No saved login named "nope". Saved: personal, work/);
+
+    removeLogin(dir, "work");
+    assert.deepEqual(listLogins(dir, { home }).map((l) => l.name), ["personal"]);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("logins: login command works on the profile in use, or --profile", { skip: process.platform === "darwin" }, async () => {
+  const { execFileSync } = await import("node:child_process");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-logincmd-")));
+  const cfg = path.join(home, ".config");
+  const b = path.join(home, ".claude-b");
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.mkdirSync(b, { recursive: true });
+  fs.mkdirSync(path.join(cfg, "claude-multiprofile"), { recursive: true });
+  fs.writeFileSync(path.join(cfg, "claude-multiprofile", "profiles.json"), JSON.stringify({
+    version: 1, profiles: [{ name: "b", type: "code", desktop: null, code: { configDir: b } }],
+  }));
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: cfg, NO_COLOR: "1" };
+  delete env.CLAUDE_CONFIG_DIR;
+  delete env.CLAUDE_MP_PROFILE;
+  const run = (...args) => execFileSync(process.execPath, [path.resolve("bin/claude-multiprofile.js"), "login", ...args], { encoding: "utf8", env });
+  const signIn = (tok, email) => {
+    fs.writeFileSync(path.join(home, ".claude", ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: tok, refreshToken: `r-${tok}` } }));
+    fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: email, emailAddress: email } }));
+  };
+  try {
+    signIn("A", "a@x");
+    run("save", "loginA");
+    signIn("B", "b@x");
+    run("save", "loginB");
+    assert.match(run("loginA"), /Signed in as "loginA" \(a@x\)/);
+    assert.match(run("list"), /\* loginA\s+a@x/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, ".claude", ".credentials.json"), "utf8")).claudeAiOauth.accessToken, "A");
+    assert.match(run("list", "--profile", "b"), /none yet/);
+    assert.throws(() => run("save", "x", "--profile", "b"), /not signed in/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

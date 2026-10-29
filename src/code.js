@@ -447,5 +447,6 @@ export function setupCode({ name, configDir, aliasName, seedFromDefault, isolate
   const { shell, rcPath } = addAlias({ aliasName, configDir, ghConfigDir });
   ok(`Alias "${aliasName}" added to ${pathStr(tildify(rcPath))} (shell: ${shell}).`);
 
-  return { configDir, aliasName, shell, rcPath, ghConfigDir };
+  // created: this run made the folder, so `add` may replace what it seeded with links.
+  return { configDir, aliasName, shell, rcPath, ghConfigDir, created: Boolean(created) };
 }

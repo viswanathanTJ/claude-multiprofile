@@ -50,6 +50,19 @@ claude-multiprofile current               # show the profile in use
 config, in its own marked block. It also adds `claude-multiprofile switch --session` for the current shell.
 Run it once; running it again replaces the block. Without `--install` it prints the wrapper.
 
+### Run one command with another profile
+
+The wrapper accepts `--profile NAME` (or `--profile=NAME`) and uses that profile for this run only:
+
+```sh
+claude --profile work --resume
+claude --profile=default
+```
+
+`CLAUDE_CONFIG_DIR=~/.claude-work claude` does the same, with or without the wrapper and the shim: a
+`CLAUDE_CONFIG_DIR` that is already set wins over the saved profile, which is how each profile's own command
+(`claude-work`) opens that profile. `--profile NAME` wins over both.
+
 ### Make every claude start use the profile
 
 The wrapper only helps interactive shells that load your config. For scripts, cron jobs and IDE terminals:
@@ -62,12 +75,65 @@ claude-multiprofile remove-shim    # puts the original link back
 The shim runs the real Claude binary that the link pointed to. If Claude's own updates replace the link,
 run `install-shim` again. If you move this tool's folder, run it again too.
 
-## Share chat history between profiles
+## Share history, setup and MCP servers between profiles
 
-When you `add` a Claude Code profile, the wizard asks whether to share its chat history with an existing
-profile (or `default`, your normal `~/.claude`). Sharing links the `projects` folder and `history.jsonl`
-to that profile, so both see the same sessions. The source keeps its files. If the new profile already had
-a history folder, it is moved aside as `projects.before-sharing-<time>`, not deleted.
+`claude-multiprofile link` shares from one Claude Code profile (the source) into another (the target).
+It asks for both, then for what to share, with every item ticked: Enter shares everything. Without
+`--items`, all items are shared. `add` asks the same when you create a profile: "Link to another
+profile?".
+
+```sh
+claude-multiprofile link                                  # asks source, target and what to share
+claude-multiprofile link default work --yes              # everything, no questions
+claude-multiprofile link default work --items mcp,prefs   # only these; add --yes to skip the confirm
+```
+
+| Item | How | What |
+|---|---|---|
+| `history` | linked | `projects/`, `history.jsonl`, `file-history/` (so `/rewind` works on a shared session) |
+| `setup` | linked | `skills/`, `commands/`, `agents/`, `hooks/`, `output-styles/`, `CLAUDE.md`, `keybindings.json` |
+| `mcp` | copied | MCP servers: user scope, and the per-folder ones `claude mcp add` makes by default |
+| `prefs` | copied | onboarding done and theme (no first-run screen), each folder's trust and allowed tools |
+| `login` | copied | The Claude sign-in and its account, so the target is on the source's account at once. It replaces the target's own (kept as `.credentials.json.before-sharing-<time>`). Being a copy, `/login` in the target later switches only the target. Both profiles hold one refresh token, so when one refreshes the other may need `/login` again. Linux only |
+| `mcpAuth` | copied | MCP servers' sign-ins. Both profiles then hold one refresh token, and when one refreshes the other may have to authenticate again with `/mcp`. Linux only; on macOS they are in the Keychain |
+
+Linked items are one copy: a skill added in either profile shows in both. The link points at where the
+source's entry really is, so linking to a profile that is itself linked doesn't make a chain. What the
+target had is moved aside as `<name>.before-sharing-<time>`, not deleted.
+
+Copied items live in `.claude.json`, which also holds each profile's account and state, so they can't be
+linked. They are only added: a server or setting the target already has is kept. The old file is kept as
+`.claude.json.before-sharing`. Run `link` again later to pick up new ones. Close Claude in the target
+first, since it rewrites that file while it runs.
+
+Never shared: `settings.json`, which often holds per-profile settings (`add` can copy it instead). Removing or renaming
+a source profile breaks the target's links.
+
+## Switch accounts in one profile (Linux)
+
+A profile can hold several accounts and switch between them, keeping its history, settings, MCP servers
+and everything else. This works for `default` (`~/.claude`) too, so there's no need for a second profile:
+
+```sh
+# signed in as your personal account:
+claude-multiprofile login save personal
+# /login in claude as the work account, then:
+claude-multiprofile login save work
+
+claude-multiprofile login personal    # or: login use personal
+claude-multiprofile login work
+claude-multiprofile login             # asks which
+claude-multiprofile login list        # * marks the account signed in now
+claude-multiprofile login remove work
+```
+
+It works on the profile `claude` would open here, or the one named with `--profile NAME`. Each saved login is the
+sign-in from `.credentials.json` plus the account from `.claude.json`, kept in `<config dir>/logins/NAME.json`
+(mode 0600). Switching swaps only those two; MCP sign-ins stay as they are. Claude refreshes its tokens as it
+runs, so switching away first saves the latest tokens under that account's name. If the account signed in now
+isn't saved, switching stops rather than dropping it (`--force` drops it). Restart Claude sessions that are
+already open: they keep the account they started with. macOS keeps the sign-in in the Keychain, so this is
+Linux only.
 
 ## Why this exists
 
@@ -356,6 +422,10 @@ Same as `switch --all`.
 ### `claude-multiprofile current`
 
 Prints the profile in use.
+
+### `claude-multiprofile login [NAME | save NAME | list | remove NAME] [--profile P] [--force]`
+
+Switches the account of a profile between saved logins (Linux). See [Switch accounts in one profile](#switch-accounts-in-one-profile-linux).
 
 ### `claude-multiprofile shell-init [SHELL] [--install]`
 

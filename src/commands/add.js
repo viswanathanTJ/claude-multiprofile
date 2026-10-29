@@ -61,7 +61,8 @@ import {
 } from "../code.js";
 import { detectShell, rcPathForShell } from "../shell.js";
 import { COLORS } from "../appclone.js";
-import { linkHistory } from "../history.js";
+import { share } from "../share.js";
+import { askShareItems } from "./link.js";
 
 const LSREGISTER =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
@@ -244,7 +245,7 @@ export async function add() {
   let codeConfig = null;
   if (wantsCode) {
     codeConfig = await askCodeQuestions(name);
-    if (codeConfig) codeConfig.shareHistoryFrom = await askShareHistory(name);
+    if (codeConfig) codeConfig.shareFrom = await askShare(name);
     // The user declined to claim an existing folder. If Code was the only
     // target there's nothing left to do; otherwise carry on with Desktop.
     if (!codeConfig && !desktopConfig) {
@@ -284,8 +285,9 @@ export async function add() {
   }
   if (codeConfig) {
     codeResult = setupCode(codeConfig);
-    if (codeConfig.shareHistoryFrom && codeResult) {
-      for (const line of linkHistory(codeConfig.shareHistoryFrom, codeResult.configDir)) info(line);
+    if (codeConfig.shareFrom && codeResult) {
+      const { configDir, items } = codeConfig.shareFrom;
+      for (const line of share(configDir, codeResult.configDir, items, { fresh: codeResult.created })) info(line);
     }
   }
 
@@ -763,21 +765,24 @@ async function askDesktopQuestions(name) {
 // Claude Code wizard questions
 // ===========================================================================
 
-// Asks whether this profile shares chat history with an existing Claude Code profile.
-// Returns the folder to share with, or null to keep the history separate.
-async function askShareHistory(name) {
+// Asks whether this profile is linked to an existing Claude Code profile, and what it shares:
+// history and setup (linked), MCP servers and preferences (copied). See src/share.js.
+// Returns { name, configDir, items }, or null to keep the profile separate.
+async function askShare(name) {
   const sources = [{ name: "default", configDir: path.join(os.homedir(), ".claude") }];
   for (const p of getRegistry().profiles) {
     if (p.name !== name && p.code?.configDir) sources.push({ name: p.name, configDir: p.code.configDir });
   }
-  const choice = await select({
-    message: `Share chat history for "${name}" with another profile?`,
+  const source = await select({
+    message: `Link "${name}" to another profile (share history, setup, MCP servers)?`,
     choices: [
-      { name: "No, keep this profile's history separate", value: null },
-      ...sources.map((s) => ({ name: `Yes, share with ${s.name} (${s.configDir})`, value: s.configDir })),
+      { name: "No, keep this profile separate", value: null },
+      ...sources.map((s) => ({ name: `Yes, link to ${s.name} (${s.configDir})`, value: s })),
     ],
   });
-  return choice;
+  if (!source) return null;
+  const items = await askShareItems(source.name);
+  return items.length ? { ...source, items } : null;
 }
 
 async function askCodeQuestions(name) {
@@ -916,6 +921,7 @@ function printPlan({ name, desktopConfig, codeConfig }) {
     console.log(`    Config folder: ${pathStr(tildify(codeConfig.configDir))}`);
     console.log(`    Shell alias: ${pathStr(codeConfig.aliasName)}`);
     console.log(`    Copy Claude Code setup: ${codeConfig.seedFromDefault ? "yes" : "no"}`);
+    console.log(`    Linked to: ${codeConfig.shareFrom ? `${codeConfig.shareFrom.name} (${codeConfig.shareFrom.items.join(", ")})` : "no"}`);
     console.log(`    Own GitHub CLI login: ${codeConfig.isolateGh ? "yes" : "no"}\n`);
   }
 }
