@@ -109,6 +109,32 @@ first, since it rewrites that file while it runs.
 Never shared: `settings.json`, which often holds per-profile settings (`add` can copy it instead). Removing or renaming
 a source profile breaks the target's links.
 
+## Switch accounts in one profile (Linux)
+
+A profile can hold several accounts and switch between them, keeping its history, settings, MCP servers
+and everything else. This works for `default` (`~/.claude`) too, so there's no need for a second profile:
+
+```sh
+# signed in as your personal account:
+claude-multiprofile login save personal
+# /login in claude as the work account, then:
+claude-multiprofile login save work
+
+claude-multiprofile login personal    # or: login use personal
+claude-multiprofile login work
+claude-multiprofile login             # asks which
+claude-multiprofile login list        # * marks the account signed in now
+claude-multiprofile login remove work
+```
+
+It works on the profile `claude` would open here, or the one named with `--profile NAME`. Each saved login is the
+sign-in from `.credentials.json` plus the account from `.claude.json`, kept in `<config dir>/logins/NAME.json`
+(mode 0600). Switching swaps only those two; MCP sign-ins stay as they are. Claude refreshes its tokens as it
+runs, so switching away first saves the latest tokens under that account's name. If the account signed in now
+isn't saved, switching stops rather than dropping it (`--force` drops it). Restart Claude sessions that are
+already open: they keep the account they started with. macOS keeps the sign-in in the Keychain, so this is
+Linux only.
+
 ## Why this exists
 
 Claude Desktop and Claude Code both assume a single signed-in account. There's no built-in profile switcher today (open feature requests: [Desktop](https://github.com/anthropics/claude-code/issues/32783), [Desktop UI](https://github.com/anthropics/claude-code/issues/18435)). The standard workaround is a manual setup:
@@ -396,6 +422,10 @@ Same as `switch --all`.
 ### `claude-multiprofile current`
 
 Prints the profile in use.
+
+### `claude-multiprofile login [NAME | save NAME | list | remove NAME] [--profile P] [--force]`
+
+Switches the account of a profile between saved logins (Linux). See [Switch accounts in one profile](#switch-accounts-in-one-profile-linux).
 
 ### `claude-multiprofile shell-init [SHELL] [--install]`
 

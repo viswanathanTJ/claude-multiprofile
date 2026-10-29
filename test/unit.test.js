@@ -2552,3 +2552,99 @@ test("history: linkHistory shares projects and history.jsonl and keeps the old c
   assert.match(linkHistory(from, to).join("\n"), /already shared/);
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+test("logins: save two accounts in one profile, switch between them, keep the latest tokens", { skip: process.platform === "darwin" }, async () => {
+  const { saveLogin, useLogin, listLogins, removeLogin, activeLoginName } = await import("../src/logins.js");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-logins-")));
+  const dir = path.join(home, ".claude");
+  fs.mkdirSync(dir, { recursive: true });
+  const credsFile = path.join(dir, ".credentials.json");
+  const cfgFile = path.join(home, ".claude.json");
+  const signIn = (tok, uuid, email) => {
+    const creds = fs.existsSync(credsFile) ? JSON.parse(fs.readFileSync(credsFile, "utf8")) : {};
+    fs.writeFileSync(credsFile, JSON.stringify({ ...creds, claudeAiOauth: { accessToken: tok, refreshToken: `r-${tok}` } }), { mode: 0o600 });
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, "utf8"));
+    fs.writeFileSync(cfgFile, JSON.stringify({ ...cfg, oauthAccount: { accountUuid: uuid, emailAddress: email } }));
+  };
+  const creds = () => JSON.parse(fs.readFileSync(credsFile, "utf8"));
+  const cfg = () => JSON.parse(fs.readFileSync(cfgFile, "utf8"));
+  try {
+    fs.writeFileSync(cfgFile, JSON.stringify({ numStartups: 7, projects: { "/w": { allowedTools: ["x"] } } }));
+    fs.writeFileSync(credsFile, JSON.stringify({ mcpOAuth: { "srv|1": { accessToken: "m" } } }));
+    assert.throws(() => saveLogin(dir, "personal", { home }), /not signed in/);
+
+    signIn("P1", "u-p", "me@home");
+    assert.match(saveLogin(dir, "personal", { home })[0], /saved/);
+    assert.equal(fs.statSync(path.join(dir, "logins", "personal.json")).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.join(dir, "logins")).mode & 0o777, 0o700);
+    assert.throws(() => saveLogin(dir, "again", { home }), /already saved as "personal"/);
+
+    signIn("W1", "u-w", "me@work");
+    assert.throws(() => saveLogin(dir, "personal", { home }), /another account/);
+    assert.throws(() => saveLogin(dir, "../x", { home }), /not a usable login name/);
+    saveLogin(dir, "work", { home });
+    assert.equal(activeLoginName(dir, { home }), "work");
+
+    // Work refreshes its tokens while it runs; switching away keeps the refreshed ones.
+    signIn("W2", "u-w", "me@work");
+    const notes = useLogin(dir, "personal", { home });
+    assert.match(notes.join("\n"), /"work": kept its latest/);
+    assert.equal(creds().claudeAiOauth.accessToken, "P1");
+    assert.deepEqual(creds().mcpOAuth, { "srv|1": { accessToken: "m" } }, "MCP sign-ins untouched");
+    assert.equal(cfg().oauthAccount.emailAddress, "me@home");
+    assert.equal(cfg().numStartups, 7, "the rest of .claude.json untouched");
+    assert.deepEqual(cfg().projects, { "/w": { allowedTools: ["x"] } });
+    assert.equal(fs.statSync(credsFile).mode & 0o777, 0o600);
+
+    useLogin(dir, "work", { home });
+    assert.equal(creds().claudeAiOauth.accessToken, "W2");
+    assert.match(useLogin(dir, "work", { home })[0], /Already signed in/);
+    assert.deepEqual(listLogins(dir, { home }).map((l) => [l.name, l.active, l.email]), [["personal", false, "me@home"], ["work", true, "me@work"]]);
+
+    // An account that is not saved is not dropped without --force.
+    signIn("X1", "u-x", "other@x");
+    assert.throws(() => useLogin(dir, "personal", { home }), /not saved/);
+    useLogin(dir, "personal", { home, force: true });
+    assert.equal(creds().claudeAiOauth.accessToken, "P1");
+    assert.throws(() => useLogin(dir, "nope", { home }), /No saved login named "nope". Saved: personal, work/);
+
+    removeLogin(dir, "work");
+    assert.deepEqual(listLogins(dir, { home }).map((l) => l.name), ["personal"]);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("logins: login command works on the profile in use, or --profile", { skip: process.platform === "darwin" }, async () => {
+  const { execFileSync } = await import("node:child_process");
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmp-logincmd-")));
+  const cfg = path.join(home, ".config");
+  const b = path.join(home, ".claude-b");
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.mkdirSync(b, { recursive: true });
+  fs.mkdirSync(path.join(cfg, "claude-multiprofile"), { recursive: true });
+  fs.writeFileSync(path.join(cfg, "claude-multiprofile", "profiles.json"), JSON.stringify({
+    version: 1, profiles: [{ name: "b", type: "code", desktop: null, code: { configDir: b } }],
+  }));
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: cfg, NO_COLOR: "1" };
+  delete env.CLAUDE_CONFIG_DIR;
+  delete env.CLAUDE_MP_PROFILE;
+  const run = (...args) => execFileSync(process.execPath, [path.resolve("bin/claude-multiprofile.js"), "login", ...args], { encoding: "utf8", env });
+  const signIn = (tok, email) => {
+    fs.writeFileSync(path.join(home, ".claude", ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: tok, refreshToken: `r-${tok}` } }));
+    fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: email, emailAddress: email } }));
+  };
+  try {
+    signIn("A", "a@x");
+    run("save", "loginA");
+    signIn("B", "b@x");
+    run("save", "loginB");
+    assert.match(run("loginA"), /Signed in as "loginA" \(a@x\)/);
+    assert.match(run("list"), /\* loginA\s+a@x/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, ".claude", ".credentials.json"), "utf8")).claudeAiOauth.accessToken, "A");
+    assert.match(run("list", "--profile", "b"), /none yet/);
+    assert.throws(() => run("save", "x", "--profile", "b"), /not signed in/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

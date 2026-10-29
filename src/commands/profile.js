@@ -134,6 +134,18 @@ export function currentCmd() {
   console.log(currentProfile());
 }
 
+// The profile a plain `claude` here would open: NAME if given, else the folder in CLAUDE_CONFIG_DIR,
+// else the profile in use. Returns { name, configDir }.
+export function resolveProfile(name) {
+  if (name) return requireProfile(name);
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    const dir = path.resolve(process.env.CLAUDE_CONFIG_DIR);
+    const found = listProfiles().find((p) => path.resolve(p.configDir) === dir);
+    return found || { name: dir, configDir: dir };
+  }
+  return findNamed(currentProfile()) || findNamed(DEFAULT);
+}
+
 // `claude-multiprofile resolve-dir [NAME]`: the config folder for NAME, or for the profile in use
 // ("" for default). The wrapper and the shim call this on every `claude` start. An unknown NAME is an error.
 // A CLAUDE_CONFIG_DIR that is already set is kept: it is how a profile's own command (claude-work) picks

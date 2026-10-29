@@ -13,6 +13,7 @@ import { doctor } from "./commands/doctor.js";
 import { extensions } from "./commands/extensions.js";
 import { link } from "./commands/link.js";
 import { list } from "./commands/list.js";
+import { login } from "./commands/login.js";
 import { remove } from "./commands/remove.js";
 import { rename } from "./commands/rename.js";
 import { repair } from "./commands/repair.js";
@@ -65,6 +66,11 @@ COMMANDS
   link [SOURCE] [TARGET] Share history, skills and other setup (linked), MCP servers
                          and preferences (copied) from one Code profile to another
                          (--items history,setup,mcp,prefs,mcpAuth; asks if left out)
+  login [NAME]           Switch the account of the profile in use to a saved login,
+                         keeping its history and setup (Linux; asks if NAME is left out)
+  login save NAME        Save the account signed in now as NAME
+  login list | remove NAME
+                         Show or forget saved logins (--profile P: another profile)
   shell-init [SHELL]     Print the claude wrapper for fish, bash or zsh
   install-shim          Make every claude start (scripts, cron, IDEs too) use the profile in use
   remove-shim           Put the original claude back
@@ -107,6 +113,7 @@ async function pickCommand() {
       { name: "switch       Switch Claude Code to a profile (every terminal)", value: "switch" },
       { name: "current      Show the profile in use", value: "current" },
       { name: "link         Share history, setup, MCP servers between profiles", value: "link" },
+      { name: "login        Switch the account (saved logins) in this profile", value: "login" },
       { name: "shell-init   Print the claude wrapper (fish, bash, zsh)", value: "shell-init" },
       { name: "upgrade      Upgrade claude-multiprofile to the latest version", value: "upgrade" },
       { name: "help         Show full help text", value: "help" },
@@ -170,7 +177,7 @@ export async function run(argv) {
   if (argv[0]) remindIfFixesPending(cmd);
 
   const handlers = {
-    add, link, list, status, doctor, extensions, rename, repair, remove, upgrade,
+    add, link, list, login, status, doctor, extensions, rename, repair, remove, upgrade,
     "self-update": selfUpdate,
     switch: switchCmd,
     "set-default": setDefaultCmd,   // same as switch

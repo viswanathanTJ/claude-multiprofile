@@ -72,7 +72,7 @@ export function credentialsFileFor(dir) {
   return path.join(dir, ".credentials.json");
 }
 
-function readJson(file) {
+export function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (e) {
@@ -83,7 +83,7 @@ function readJson(file) {
 
 // Writes through a temporary file so Claude never reads half a file, keeping the file's mode
 // (0600 for a new one: both files can hold secrets).
-function writeJson(file, data) {
+export function writeJson(file, data) {
   let mode = 0o600;
   try {
     mode = fs.statSync(file).mode & 0o777;
